@@ -1,14 +1,42 @@
-import type { Metadata } from "next";
-import { T, FONT } from "@/lib/constants";
+"use client";
 
-export const metadata: Metadata = {
-  title: "앱 설치 · 더브코 알파 클리닉",
-  description: "QR을 찍어 홈 화면에 추가하세요",
-};
+import React, { useEffect, useState } from "react";
+import { T, FONT } from "@/lib/constants";
 
 const APP_URL = "https://port-0-alpha-m7c8oc297ff7fd19.sel4.cloudtype.app/";
 
 export default function InstallPage() {
+  const [platform, setPlatform] = useState<"ios" | "android" | "other">("other");
+  const [deferred, setDeferred] = useState<any>(null);
+  const [installed, setInstalled] = useState(false);
+
+  useEffect(() => {
+    document.title = "앱 설치 · 더브코 알파 클리닉";
+    const ua = navigator.userAgent || "";
+    if (/iPhone|iPad|iPod/i.test(ua)) setPlatform("ios");
+    else if (/Android/i.test(ua)) setPlatform("android");
+
+    const onBIP = (e: any) => {
+      e.preventDefault();
+      setDeferred(e);
+    };
+    const onInstalled = () => setInstalled(true);
+    window.addEventListener("beforeinstallprompt", onBIP);
+    window.addEventListener("appinstalled", onInstalled);
+    if (window.matchMedia?.("(display-mode: standalone)").matches) setInstalled(true);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBIP);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  const doInstall = async () => {
+    if (!deferred) return;
+    deferred.prompt();
+    await deferred.userChoice;
+    setDeferred(null);
+  };
+
   const card: React.CSSProperties = {
     background: "#fff",
     border: `1px solid ${T.line}`,
@@ -16,6 +44,7 @@ export default function InstallPage() {
     padding: 20,
     marginBottom: 16,
   };
+
   return (
     <div
       style={{
@@ -40,7 +69,6 @@ export default function InstallPage() {
               marginBottom: 12,
             }}
           >
-            {/* 졸업모자 (인라인 SVG) */}
             <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z" />
               <path d="M22 10v6" />
@@ -55,63 +83,91 @@ export default function InstallPage() {
           </div>
         </div>
 
-        {/* QR */}
-        <div style={{ ...card, textAlign: "center" }}>
-          <div style={{ fontSize: 14.5, fontWeight: 800, color: T.ink, marginBottom: 12 }}>
-            📷 QR 스캔 또는 아래 버튼
+        {installed ? (
+          <div style={{ ...card, textAlign: "center", background: T.okSoft, border: `1px solid ${T.okSoft}` }}>
+            <div style={{ fontSize: 15.5, fontWeight: 800, color: T.ok }}>
+              ✅ 이미 앱으로 실행 중이에요!
+            </div>
+            <a href={APP_URL} style={{ display: "block", marginTop: 12, color: T.primary, fontWeight: 700 }}>
+              앱 열기 →
+            </a>
           </div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/qr.png"
-            alt="앱 주소 QR"
-            width={220}
-            height={220}
-            style={{ borderRadius: 12, border: `1px solid ${T.line}` }}
-          />
-          <a
-            href={APP_URL}
-            style={{
-              display: "block",
-              marginTop: 14,
-              padding: "13px 0",
-              background: T.primary,
-              color: "#fff",
-              borderRadius: 12,
-              fontSize: 15,
-              fontWeight: 700,
-              textDecoration: "none",
-            }}
-          >
-            지금 웹으로 열기 →
-          </a>
-          <div style={{ fontSize: 12, color: T.muted, marginTop: 10, wordBreak: "break-all" }}>
-            {APP_URL}
-          </div>
-        </div>
+        ) : (
+          <>
+            {/* 안드로이드: 원탭 설치 버튼 */}
+            {platform !== "ios" && deferred && (
+              <div style={{ ...card, textAlign: "center" }}>
+                <div style={{ fontSize: 14.5, fontWeight: 800, color: T.ink, marginBottom: 12 }}>
+                  🤖 원탭 설치
+                </div>
+                <button
+                  onClick={doInstall}
+                  style={{
+                    width: "100%",
+                    padding: "15px 0",
+                    background: T.primary,
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 12,
+                    fontSize: 16,
+                    fontWeight: 800,
+                    fontFamily: FONT,
+                    cursor: "pointer",
+                  }}
+                >
+                  📲 앱 설치하기
+                </button>
+              </div>
+            )}
 
-        {/* 안드로이드 */}
-        <div style={card}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: T.ink, marginBottom: 10 }}>
-            🤖 안드로이드 (Chrome)
-          </div>
-          <ol style={{ margin: 0, paddingLeft: 18, color: T.sub, fontSize: 14, lineHeight: 1.9 }}>
-            <li>위 버튼으로 사이트 열기</li>
-            <li>하단 <b style={{ color: T.ink }}>"앱 설치"</b> 배너 탭 (또는 메뉴 ⋮ → <b style={{ color: T.ink }}>홈 화면에 추가</b>)</li>
-            <li>홈 화면 아이콘으로 앱처럼 실행</li>
-          </ol>
-        </div>
+            {/* 아이폰 안내 (강조) */}
+            {platform === "ios" && (
+              <div style={{ ...card, border: `2px solid ${T.primary}` }}>
+                <div style={{ fontSize: 15.5, fontWeight: 800, color: T.primary, marginBottom: 10 }}>
+                  🍎 아이폰 설치 (Safari)
+                </div>
+                <ol style={{ margin: 0, paddingLeft: 18, color: T.ink, fontSize: 14.5, lineHeight: 2 }}>
+                  <li>아래 <b>웹으로 열기</b> 탭 (반드시 Safari)</li>
+                  <li>하단 <b>공유 버튼</b> <span style={{ fontSize: 17 }}>⬆️</span> 탭</li>
+                  <li><b>홈 화면에 추가</b> 선택 → 추가</li>
+                </ol>
+              </div>
+            )}
 
-        {/* 아이폰 */}
-        <div style={card}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: T.ink, marginBottom: 10 }}>
-            🍎 아이폰 (Safari)
-          </div>
-          <ol style={{ margin: 0, paddingLeft: 18, color: T.sub, fontSize: 14, lineHeight: 1.9 }}>
-            <li>위 버튼으로 사이트 열기 (꼭 Safari)</li>
-            <li>하단 <b style={{ color: T.ink }}>공유 버튼</b> (⬆️) 탭</li>
-            <li><b style={{ color: T.ink }}>홈 화면에 추가</b> 선택 → 추가</li>
-          </ol>
-        </div>
+            {/* 웹으로 열기 (공통) */}
+            <a
+              href={APP_URL}
+              style={{
+                display: "block",
+                textAlign: "center",
+                padding: "14px 0",
+                background: platform === "ios" ? T.primary : "#fff",
+                color: platform === "ios" ? "#fff" : T.primary,
+                border: `1.5px solid ${T.primary}`,
+                borderRadius: 12,
+                fontSize: 15.5,
+                fontWeight: 800,
+                textDecoration: "none",
+                marginBottom: 16,
+              }}
+            >
+              웹으로 열기 →
+            </a>
+
+            {/* 안드로이드 수동 안내 (설치 버튼이 안 뜰 때) */}
+            {platform !== "ios" && (
+              <div style={card}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: T.ink, marginBottom: 10 }}>
+                  🤖 안드로이드 (버튼이 안 보이면)
+                </div>
+                <ol style={{ margin: 0, paddingLeft: 18, color: T.sub, fontSize: 14, lineHeight: 1.9 }}>
+                  <li>Chrome으로 <b style={{ color: T.ink }}>웹으로 열기</b></li>
+                  <li>메뉴 <b style={{ color: T.ink }}>⋮</b> → <b style={{ color: T.ink }}>앱 설치</b> / <b style={{ color: T.ink }}>홈 화면에 추가</b></li>
+                </ol>
+              </div>
+            )}
+          </>
+        )}
 
         {/* 로그인 안내 */}
         <div style={{ ...card, background: T.primarySoft, border: `1px solid ${T.primarySoft}` }}>
