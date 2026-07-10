@@ -176,7 +176,7 @@ export default function InstallPage() {
           </div>
           <div style={{ fontSize: 14, color: T.ink, lineHeight: 1.9 }}>
             <div>
-              <b>아이디</b> : 이름 + 학교 (예: <code style={{ background: "#fff", padding: "1px 6px", borderRadius: 6 }}>최호준지족고</code>)
+              <b>아이디</b> : 이름 + 학교 (예: <code style={{ background: "#fff", padding: "1px 6px", borderRadius: 6 }}>이세돌알파고</code>)
             </div>
             <div>
               <b>비밀번호</b> : 부모님 전화번호 <b>숫자만</b> (예: <code style={{ background: "#fff", padding: "1px 6px", borderRadius: 6 }}>01012345678</code>)
