@@ -105,14 +105,17 @@ function AdminBoard({
   students,
   sessions,
   testMax,
+  testDetail,
   clinicDates,
   subjects,
   onSetAdminFields,
   onSetTestMax,
+  onSetTestDetail,
 }: {
   students: Student[];
   sessions: ClinicSession[];
   testMax: Record<string, number>;
+  testDetail: Record<string, string>;
   clinicDates: string[];
   subjects: string[];
   onSetAdminFields: (
@@ -126,6 +129,7 @@ function AdminBoard({
     subject: string,
     val: number | null
   ) => void;
+  onSetTestDetail: (date: string, subject: string, str: string) => void;
 }) {
   const [date, setDate] = useState(pickDefaultDate(clinicDates));
   const [subject, setSubject] = useState(subjects[0]);
@@ -135,6 +139,7 @@ function AdminBoard({
   const maxKey = `${date}|${subject}`;
   // 테스트 만점 기본 10 (설정이 있으면 그 값)
   const max = testMax[maxKey] ?? 10;
+  const detail = testDetail[maxKey] ?? "";
   const roster = students
     .filter((s) => (showAll || s.status === "재원") && s.subjects.includes(subject))
     .sort((a, b) => a.name.localeCompare(b.name, "ko"));
@@ -181,7 +186,7 @@ function AdminBoard({
               ))}
             </select>
           </div>
-          <div style={{ minWidth: 150 }}>
+          <div style={{ minWidth: 130 }}>
             <div style={lbl}>테스트 만점 개수 (기본 10)</div>
             <input
               type="number"
@@ -195,6 +200,15 @@ function AdminBoard({
                   e.target.value === "" ? null : Number(e.target.value)
                 )
               }
+            />
+          </div>
+          <div style={{ minWidth: 180, flex: 1 }}>
+            <div style={lbl}>테스트 문항 (반 공통)</div>
+            <input
+              style={inputBase}
+              value={detail}
+              placeholder="예: 3,6,9번"
+              onChange={(e) => onSetTestDetail(date, subject, e.target.value)}
             />
           </div>
           <label
@@ -225,12 +239,12 @@ function AdminBoard({
               width: "100%",
               borderCollapse: "collapse",
               fontSize: 14,
-              minWidth: 1080,
+              minWidth: 960,
             }}
           >
             <thead>
               <tr style={{ background: "#F6F8FB" }}>
-                {["학생", "출석", "질문 문제", "과제", "테스트", "테스트 문항", "해결 문제", "비고", ""].map(
+                {["학생", "출석", "질문 문제", "과제", "테스트", "해결 문제", "비고", ""].map(
                   (h, i) => (
                     <th
                       key={i}
@@ -253,7 +267,7 @@ function AdminBoard({
             <tbody>
               {roster.length === 0 && (
                 <tr>
-                  <td colSpan={9}>
+                  <td colSpan={8}>
                     <Empty
                       icon={<Users size={28} />}
                       text="해당 과목 학생이 없습니다"
@@ -386,14 +400,6 @@ function AdminBoard({
                           }}
                         />
                       </div>
-                    </td>
-                    <td style={{ padding: "10px 12px" }}>
-                      <input
-                        value={r?.testDetail ?? ""}
-                        placeholder="예: 3,6,9번"
-                        onChange={(e) => patch({ testDetail: e.target.value })}
-                        style={{ ...inputBase, width: 120, padding: "6px 8px" }}
-                      />
                     </td>
                     <td style={{ padding: "10px 12px" }}>
                       <input
@@ -1362,6 +1368,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
   const [students, setStudents] = useState<Student[]>([]);
   const [sessions, setSessions] = useState<ClinicSession[]>([]);
   const [testMax, setTestMax] = useState<Record<string, number>>({});
+  const [testDetail, setTestDetail] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
@@ -1374,8 +1381,11 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
     setStudents(await api.get(`/api/admin/roster${tq}`));
   const reloadSessions = async () =>
     setSessions(await api.get(`/api/admin/sessions${tq}`));
-  const reloadTestMax = async () =>
-    setTestMax(await api.get(`/api/admin/testconfig${tq}`));
+  const reloadTestMax = async () => {
+    const d = await api.get(`/api/admin/testconfig${tq}`);
+    setTestMax(d.max ?? {});
+    setTestDetail(d.detail ?? {});
+  };
   const reloadTerms = async () => {
     const ts: TermInfo[] = await api.get("/api/admin/terms");
     setTerms(ts);
@@ -1410,7 +1420,8 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
       .then(([st, se, tm]) => {
         setStudents(st);
         setSessions(se);
-        setTestMax(tm);
+        setTestMax(tm.max ?? {});
+        setTestDetail(tm.detail ?? {});
       })
       .catch((e: any) => setErr(e.message || "데이터를 불러오지 못했습니다."))
       .finally(() => setLoading(false));
@@ -1499,6 +1510,17 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
     });
     try {
       await api.put("/api/admin/testconfig", { term: termId, subject, date, maxScore: val });
+    } catch (e: any) {
+      alert(e.message || "저장에 실패했습니다.");
+      reloadTestMax();
+    }
+  };
+
+  const setTestDetailFor = async (date: string, subject: string, str: string) => {
+    const key = `${date}|${subject}`;
+    setTestDetail((p) => ({ ...p, [key]: str }));
+    try {
+      await api.put("/api/admin/testconfig", { term: termId, subject, date, detail: str });
     } catch (e: any) {
       alert(e.message || "저장에 실패했습니다.");
       reloadTestMax();
@@ -1656,10 +1678,12 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                   students={students}
                   sessions={sessions}
                   testMax={testMax}
+                  testDetail={testDetail}
                   clinicDates={clinicDates}
                   subjects={subjects}
                   onSetAdminFields={setAdminFields}
                   onSetTestMax={setTestMaxFor}
+                  onSetTestDetail={setTestDetailFor}
                 />
               )}
               {tab === "quick" && (

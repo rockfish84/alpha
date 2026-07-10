@@ -81,7 +81,8 @@ const TestConfigSchema = new Schema({
   term: { type: Schema.Types.ObjectId, ref: "Term", required: true },
   subject: { type: String, required: true },
   date: { type: Date, required: true },
-  maxScore: { type: Number, required: true },
+  maxScore: { type: Number, default: 10 },
+  detail: { type: String, default: "" }, // 테스트 문항 (예: 3,6,9번) — 반 공통
 });
 TestConfigSchema.index({ term: 1, subject: 1, date: 1 }, { unique: true });
 
