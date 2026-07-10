@@ -16,6 +16,20 @@ export function serializeStudent(doc: any) {
 
 export type ClientStudent = ReturnType<typeof serializeStudent>;
 
+/** Enrollment + Student -> 학기별 명단 행 (관리자용, 평문 비번 포함). */
+export function serializeRoster(enr: any, stu: any) {
+  return {
+    id: String(stu._id), // student id (세션 patch 등에서 사용)
+    enrollmentId: String(enr._id),
+    name: stu.name as string,
+    username: stu.username as string,
+    password: (stu.passwordPlain ?? "") as string,
+    grade: (enr.grade ?? "") as string,
+    subjects: (enr.subjects ?? []) as string[],
+    status: (enr.status ?? "재원") as "재원" | "퇴원",
+  };
+}
+
 export function serializeSession(
   doc: any,
   maxMap?: Record<string, number>

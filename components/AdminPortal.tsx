@@ -20,6 +20,7 @@ import {
   pickDefaultDate,
   type Student,
   type ClinicSession,
+  type TermInfo,
 } from "@/lib/constants";
 import { api } from "@/lib/api";
 import {
@@ -646,7 +647,7 @@ function StudentForm({
   onSubmit: (v: EditStudent) => void;
 }) {
   const [f, setF] = useState<EditStudent>({ ...init, password: init.password ?? "" });
-  const isEdit = !!init.id;
+  const isEdit = !!init.enrollmentId;
   const set = (k: keyof EditStudent, v: any) =>
     setF((p) => ({ ...p, [k]: v }));
   const ok = !!f.name && !!f.username && (isEdit || !!f.password);
@@ -874,7 +875,7 @@ function AdminStudents({
                   <td style={{ padding: "11px 14px" }}>
                     <button
                       onClick={() =>
-                        onUpdateStudent(s.id, {
+                        onUpdateStudent(s.enrollmentId!, {
                           status: s.status === "재원" ? "퇴원" : "재원",
                         })
                       }
@@ -903,8 +904,9 @@ function AdminStudents({
                       size="xs"
                       variant="danger"
                       onClick={() =>
-                        window.confirm(`${s.name} 학생을 삭제하시겠습니까?`) &&
-                        onDeleteStudent(s.id)
+                        window.confirm(
+                          `${s.name} 학생을 이 학기 명단에서 제외할까요? (계정·다른 학기 기록은 유지)`
+                        ) && onDeleteStudent(s.enrollmentId!)
                       }
                     >
                       <Trash2 size={14} />
@@ -920,14 +922,14 @@ function AdminStudents({
       <Modal
         open={!!editing}
         onClose={() => setEditing(null)}
-        title={editing?.id ? "학생 정보 수정" : "학생 추가"}
+        title={editing?.enrollmentId ? "학생 정보 수정" : "학생 추가"}
         width={440}
       >
         {editing && (
           <StudentForm
             init={editing}
             onSubmit={(v) => {
-              if (editing.id) onUpdateStudent(editing.id, v);
+              if (editing.enrollmentId) onUpdateStudent(editing.enrollmentId, v);
               else onAddStudent(v);
               setEditing(null);
             }}
@@ -1088,44 +1090,331 @@ function AdminResponses({
 }
 
 /* ============================== PORTAL ============================== */
+/* ============================== TERMS (학기 관리) ============================== */
+function AdminTerms({
+  terms,
+  onCreate,
+  onUpdate,
+  onDelete,
+}: {
+  terms: TermInfo[];
+  onCreate: (body: any) => Promise<void>;
+  onUpdate: (id: string, patch: any) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [copyFrom, setCopyFrom] = useState("");
+  const [copyRoster, setCopyRoster] = useState(true);
+  const [editing, setEditing] = useState<TermInfo | null>(null);
+
+  const submitNew = async () => {
+    if (!name.trim()) return;
+    await onCreate({
+      name: name.trim(),
+      copyFrom: copyFrom || undefined,
+      copyRoster,
+      activate: true,
+    });
+    setName("");
+    setCopyFrom("");
+    setCreating(false);
+  };
+
+  return (
+    <div style={{ maxWidth: 720 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 10,
+          marginBottom: 14,
+        }}
+      >
+        <SectionTitle noMargin>학기 관리</SectionTitle>
+        <Btn onClick={() => setCreating((v) => !v)}>
+          <Plus size={16} />새 학기
+        </Btn>
+      </div>
+
+      {creating && (
+        <Card style={{ padding: 18, marginBottom: 16 }}>
+          <Field label="학기 이름">
+            <input
+              style={inputBase}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="예: 2026 가을"
+            />
+          </Field>
+          <Field label="이전 학기에서 복사 (선택)">
+            <select
+              style={inputBase}
+              value={copyFrom}
+              onChange={(e) => setCopyFrom(e.target.value)}
+            >
+              <option value="">복사 안 함 (빈 학기)</option>
+              {terms.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {copyFrom && (
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 14,
+                color: T.sub,
+                marginBottom: 14,
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={copyRoster}
+                onChange={(e) => setCopyRoster(e.target.checked)}
+              />
+              반·클리닉날짜와 <b>명단까지</b> 복사 (해제 시 반·날짜만)
+            </label>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn onClick={submitNew} disabled={!name.trim()}>
+              <Save size={16} />
+              만들기 (활성화)
+            </Btn>
+            <Btn variant="outline" onClick={() => setCreating(false)}>
+              취소
+            </Btn>
+          </div>
+        </Card>
+      )}
+
+      <Card style={{ overflow: "hidden" }}>
+        {terms.length === 0 && (
+          <Empty icon={<CalendarDays size={28} />} text="학기가 없습니다" />
+        )}
+        {terms.map((t) => (
+          <div
+            key={t.id}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+              padding: "14px 16px",
+              borderBottom: `1px solid ${T.line}`,
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontWeight: 800, color: T.ink, fontSize: 15 }}>
+                  {t.name}
+                </span>
+                {t.active && <Pill tone="ok">진행중</Pill>}
+              </div>
+              <div style={{ fontSize: 12.5, color: T.muted, marginTop: 3 }}>
+                반 {t.subjects.length}개 · 클리닉 {t.clinicDates.length}일
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {!t.active && (
+                <Btn size="sm" variant="soft" onClick={() => onUpdate(t.id, { active: true })}>
+                  활성화
+                </Btn>
+              )}
+              <Btn size="sm" variant="outline" onClick={() => setEditing(t)}>
+                <Pencil size={14} />설정
+              </Btn>
+              <Btn
+                size="sm"
+                variant="danger"
+                onClick={() =>
+                  window.confirm(
+                    `'${t.name}' 학기와 그 학기의 등록·기록을 모두 삭제할까요? (계정은 유지)`
+                  ) && onDelete(t.id)
+                }
+              >
+                <Trash2 size={14} />
+              </Btn>
+            </div>
+          </div>
+        ))}
+      </Card>
+
+      <Modal
+        open={!!editing}
+        onClose={() => setEditing(null)}
+        title={editing ? `${editing.name} · 설정` : ""}
+        width={520}
+      >
+        {editing && (
+          <TermSettingsForm
+            term={editing}
+            onSubmit={async (patch) => {
+              await onUpdate(editing.id, patch);
+              setEditing(null);
+            }}
+          />
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+function TermSettingsForm({
+  term,
+  onSubmit,
+}: {
+  term: TermInfo;
+  onSubmit: (patch: any) => Promise<void>;
+}) {
+  const [name, setName] = useState(term.name);
+  const [subjects, setSubjects] = useState(term.subjects.join(", "));
+  const [dates, setDates] = useState<string[]>(term.clinicDates);
+  const [newDate, setNewDate] = useState("");
+
+  const addDate = () => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(newDate) && !dates.includes(newDate)) {
+      setDates([...dates, newDate].sort());
+      setNewDate("");
+    }
+  };
+
+  return (
+    <div>
+      <Field label="학기 이름">
+        <input style={inputBase} value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <Field label="반 (쉼표로 구분)">
+        <textarea
+          style={{ ...inputBase, minHeight: 60, resize: "vertical" }}
+          value={subjects}
+          onChange={(e) => setSubjects(e.target.value)}
+          placeholder="예: 고1 공수2, 고2 미적분1"
+        />
+      </Field>
+      <Field label={`클리닉 날짜 (${dates.length}일)`}>
+        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          <input
+            type="date"
+            style={{ ...inputBase, flex: 1 }}
+            value={newDate}
+            onChange={(e) => setNewDate(e.target.value)}
+          />
+          <Btn variant="soft" onClick={addDate}>
+            <Plus size={15} />추가
+          </Btn>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {dates.map((d) => (
+            <span
+              key={d}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "5px 10px",
+                background: T.primarySoft,
+                color: T.primary,
+                borderRadius: 999,
+                fontSize: 12.5,
+                fontWeight: 700,
+              }}
+            >
+              {md(d)}
+              <button
+                onClick={() => setDates(dates.filter((x) => x !== d))}
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: T.primary, display: "flex", padding: 0 }}
+              >
+                <Trash2 size={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+      </Field>
+      <Btn
+        onClick={() =>
+          onSubmit({
+            name,
+            subjects: subjects.split(",").map((x) => x.trim()).filter(Boolean),
+            clinicDates: dates,
+          })
+        }
+        style={{ width: "100%", justifyContent: "center" }}
+      >
+        <Save size={16} />저장
+      </Btn>
+    </div>
+  );
+}
+
 export function AdminPortal({ onLogout }: { onLogout: () => void }) {
   const [tab, setTab] = useState("board");
+  const [terms, setTerms] = useState<TermInfo[]>([]);
+  const [termId, setTermId] = useState("");
   const [students, setStudents] = useState<Student[]>([]);
   const [sessions, setSessions] = useState<ClinicSession[]>([]);
   const [testMax, setTestMax] = useState<Record<string, number>>({});
-  const [subjects, setSubjects] = useState<string[]>(["수학"]);
-  const [clinicDates, setClinicDates] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  const reloadStudents = async () =>
-    setStudents(await api.get("/api/admin/students"));
-  const reloadSessions = async () =>
-    setSessions(await api.get("/api/admin/sessions"));
-  const reloadTestMax = async () =>
-    setTestMax(await api.get("/api/admin/testconfig"));
+  const term = terms.find((t) => t.id === termId);
+  const subjects = term?.subjects ?? [];
+  const clinicDates = term?.clinicDates ?? [];
+  const tq = termId ? `?term=${termId}` : "";
 
+  const reloadStudents = async () =>
+    setStudents(await api.get(`/api/admin/roster${tq}`));
+  const reloadSessions = async () =>
+    setSessions(await api.get(`/api/admin/sessions${tq}`));
+  const reloadTestMax = async () =>
+    setTestMax(await api.get(`/api/admin/testconfig${tq}`));
+  const reloadTerms = async () => {
+    const ts: TermInfo[] = await api.get("/api/admin/terms");
+    setTerms(ts);
+    return ts;
+  };
+
+  // 최초: 학기 목록 로드 → 활성 학기 선택
   useEffect(() => {
     (async () => {
       try {
-        const [st, se, tm, cfg] = await Promise.all([
-          api.get("/api/admin/students"),
-          api.get("/api/admin/sessions"),
-          api.get("/api/admin/testconfig"),
-          api.get("/api/config"),
-        ]);
-        setStudents(st);
-        setSessions(se);
-        setTestMax(tm);
-        setSubjects(cfg.subjects?.length ? cfg.subjects : ["수학"]);
-        setClinicDates(cfg.clinicDates ?? []);
+        const ts = await reloadTerms();
+        const active = ts.find((t) => t.active) ?? ts[0];
+        setTermId(active?.id ?? "");
+        if (!active) setLoading(false);
       } catch (e: any) {
         setErr(e.message || "데이터를 불러오지 못했습니다.");
-      } finally {
         setLoading(false);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 학기 선택 시: 명단·세션·만점 로드
+  useEffect(() => {
+    if (!termId) return;
+    setLoading(true);
+    Promise.all([
+      api.get(`/api/admin/roster?term=${termId}`),
+      api.get(`/api/admin/sessions?term=${termId}`),
+      api.get(`/api/admin/testconfig?term=${termId}`),
+    ])
+      .then(([st, se, tm]) => {
+        setStudents(st);
+        setSessions(se);
+        setTestMax(tm);
+      })
+      .catch((e: any) => setErr(e.message || "데이터를 불러오지 못했습니다."))
+      .finally(() => setLoading(false));
+  }, [termId]);
 
   // 채점 필드 입력 (낙관적 업데이트 + 서버 반영)
   const setAdminFields = async (
@@ -1173,6 +1462,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
     });
     try {
       const doc: ClinicSession = await api.patch("/api/admin/sessions", {
+        term: termId,
         studentId,
         date,
         subject,
@@ -1208,7 +1498,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
       return n;
     });
     try {
-      await api.put("/api/admin/testconfig", { subject, date, maxScore: val });
+      await api.put("/api/admin/testconfig", { term: termId, subject, date, maxScore: val });
     } catch (e: any) {
       alert(e.message || "저장에 실패했습니다.");
       reloadTestMax();
@@ -1226,26 +1516,63 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
 
   const addStudent = async (v: EditStudent) => {
     try {
-      await api.post("/api/admin/students", v);
+      await api.post("/api/admin/roster", { term: termId, ...v });
       reloadStudents();
     } catch (e: any) {
       alert(e.message || "추가에 실패했습니다.");
     }
   };
-  const updateStudent = async (id: string, patch: EditStudent) => {
+  const updateStudent = async (enrollmentId: string, patch: EditStudent) => {
     try {
-      await api.patch(`/api/admin/students/${id}`, patch);
+      await api.patch(`/api/admin/roster/${enrollmentId}`, patch);
       reloadStudents();
     } catch (e: any) {
       alert(e.message || "수정에 실패했습니다.");
     }
   };
-  const deleteStudent = async (id: string) => {
+  const deleteStudent = async (enrollmentId: string, account?: boolean) => {
     try {
-      await api.del(`/api/admin/students/${id}`);
+      await api.del(`/api/admin/roster/${enrollmentId}${account ? "?account=1" : ""}`);
       reloadStudents();
     } catch (e: any) {
       alert(e.message || "삭제에 실패했습니다.");
+    }
+  };
+
+  // 학기 관리
+  const createTerm = async (body: any) => {
+    try {
+      const t: TermInfo = await api.post("/api/admin/terms", body);
+      await reloadTerms();
+      setTermId(t.id);
+    } catch (e: any) {
+      alert(e.message || "학기 생성 실패");
+    }
+  };
+  const updateTerm = async (id: string, patch: any) => {
+    try {
+      await api.patch(`/api/admin/terms/${id}`, patch);
+      const ts = await reloadTerms();
+      // 활성 전환 시 그 학기로 이동
+      if (patch.active) setTermId(id);
+      else if (id === termId) {
+        // 현재 학기 설정 변경 → 재조회 트리거 위해 동일 id 유지 (terms 갱신으로 subjects/dates 반영)
+        void ts;
+      }
+    } catch (e: any) {
+      alert(e.message || "학기 수정 실패");
+    }
+  };
+  const deleteTerm = async (id: string) => {
+    try {
+      await api.del(`/api/admin/terms/${id}`);
+      const ts = await reloadTerms();
+      if (id === termId) {
+        const active = ts.find((t) => t.active) ?? ts[0];
+        setTermId(active?.id ?? "");
+      }
+    } catch (e: any) {
+      alert(e.message || "학기 삭제 실패");
     }
   };
 
@@ -1254,60 +1581,123 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
     { k: "quick", label: "테스트·과제", icon: <ClipboardCheck size={18} /> },
     { k: "students", label: "학생 관리", icon: <Users size={18} /> },
     { k: "responses", label: "응답 관리", icon: <Inbox size={18} /> },
+    { k: "terms", label: "학기 관리", icon: <CalendarDays size={18} /> },
   ];
+
+  const termBar = (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        marginBottom: 18,
+        flexWrap: "wrap",
+      }}
+    >
+      <span style={{ fontSize: 13, fontWeight: 700, color: T.sub }}>학기</span>
+      <select
+        style={{ ...inputBase, width: "auto", minWidth: 180, padding: "8px 12px" }}
+        value={termId}
+        onChange={(e) => setTermId(e.target.value)}
+      >
+        {terms.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name}
+            {t.active ? " (진행중)" : ""}
+          </option>
+        ))}
+      </select>
+      {term && !term.active && (
+        <span
+          style={{
+            fontSize: 12.5,
+            color: T.warn,
+            background: T.warnSoft,
+            padding: "4px 10px",
+            borderRadius: 999,
+            fontWeight: 700,
+          }}
+        >
+          지난 학기
+        </span>
+      )}
+    </div>
+  );
 
   return (
     <Shell
       role="admin"
       name="관리자"
-      sub="더브코 알파 클리닉"
+      sub={term ? term.name : "더브코 알파 클리닉"}
       nav={NAV}
       tab={tab}
       setTab={setTab}
       onLogout={onLogout}
     >
-      {loading ? (
-        <div style={{ padding: 40, color: T.muted }}>불러오는 중…</div>
-      ) : err ? (
+      {err ? (
         <div style={{ padding: 40, color: T.bad }}>{err}</div>
+      ) : terms.length === 0 ? (
+        <AdminTerms
+          terms={terms}
+          onCreate={createTerm}
+          onUpdate={updateTerm}
+          onDelete={deleteTerm}
+        />
       ) : (
         <>
-          {tab === "board" && (
-            <AdminBoard
-              students={students}
-              sessions={sessions}
-              testMax={testMax}
-              clinicDates={clinicDates}
-              subjects={subjects}
-              onSetAdminFields={setAdminFields}
-              onSetTestMax={setTestMaxFor}
-            />
-          )}
-          {tab === "quick" && (
-            <AdminQuickGrade
-              students={students}
-              sessions={sessions}
-              testMax={testMax}
-              clinicDates={clinicDates}
-              subjects={subjects}
-              onSetAdminFields={setAdminFields}
-              onSetTestMax={setTestMaxFor}
-            />
-          )}
-          {tab === "students" && (
-            <AdminStudents
-              students={students}
-              onAddStudent={addStudent}
-              onUpdateStudent={updateStudent}
-              onDeleteStudent={deleteStudent}
-            />
-          )}
-          {tab === "responses" && (
-            <AdminResponses
-              students={students}
-              sessions={sessions}
-              onDeleteSession={deleteSession}
-            />
+          {tab !== "terms" && termBar}
+          {loading && tab !== "terms" ? (
+            <div style={{ padding: 40, color: T.muted }}>불러오는 중…</div>
+          ) : (
+            <>
+              {tab === "board" && (
+                <AdminBoard
+                  key={termId}
+                  students={students}
+                  sessions={sessions}
+                  testMax={testMax}
+                  clinicDates={clinicDates}
+                  subjects={subjects}
+                  onSetAdminFields={setAdminFields}
+                  onSetTestMax={setTestMaxFor}
+                />
+              )}
+              {tab === "quick" && (
+                <AdminQuickGrade
+                  key={termId}
+                  students={students}
+                  sessions={sessions}
+                  testMax={testMax}
+                  clinicDates={clinicDates}
+                  subjects={subjects}
+                  onSetAdminFields={setAdminFields}
+                  onSetTestMax={setTestMaxFor}
+                />
+              )}
+              {tab === "students" && (
+                <AdminStudents
+                  students={students}
+                  onAddStudent={addStudent}
+                  onUpdateStudent={updateStudent}
+                  onDeleteStudent={deleteStudent}
+                />
+              )}
+              {tab === "responses" && (
+                <AdminResponses
+                  students={students}
+                  sessions={sessions}
+                  onDeleteSession={deleteSession}
+                />
+              )}
+              {tab === "terms" && (
+                <AdminTerms
+                  terms={terms}
+                  onCreate={createTerm}
+                  onUpdate={updateTerm}
+                  onDelete={deleteTerm}
+                />
+              )}
+            </>
           )}
         </>
       )}

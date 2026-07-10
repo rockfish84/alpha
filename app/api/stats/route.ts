@@ -3,23 +3,37 @@ import { dbConnect } from "@/lib/db";
 import { Session } from "@/lib/models";
 import { requireStudent } from "@/lib/auth";
 import { buildMaxMap } from "@/lib/testconfig";
+import { resolveTerm } from "@/lib/term";
 import { isoDate } from "@/lib/date";
 import { md } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/stats -> 과제 완료율·테스트 평균·추이
-export async function GET() {
+// GET /api/stats?term=ID -> 그 학기 과제 완료율·테스트 평균·추이
+export async function GET(req: Request) {
   const g = await requireStudent();
   if (!g.ok) return g.res;
 
   await dbConnect();
+  const { searchParams } = new URL(req.url);
+  const term = await resolveTerm(searchParams.get("term"));
+  const empty = {
+    hwRate: 0,
+    testAvg: 0,
+    submittedCnt: 0,
+    attendedCnt: 0,
+    hwFullCnt: 0,
+    hwHalfCnt: 0,
+    hwMissCnt: 0,
+    testRows: [],
+  };
+  if (!term) return NextResponse.json(empty);
+
   const [docs, maxMap] = await Promise.all([
-    Session.find({ student: g.user.id }).lean(),
-    buildMaxMap(),
+    Session.find({ student: g.user.id, term: term._id }).lean(),
+    buildMaxMap(String(term._id)),
   ]);
 
-  // 과제 미입력(null)은 그날 과제를 안 받은 것 → 통계 제외. 1(O)/0.5(△)/0(X)만 반영.
   const graded = docs.filter((s) => s.hwDone !== null && s.hwDone !== undefined);
   const hwSum = graded.reduce((a, s) => a + Number(s.hwDone), 0);
   const hwFullCnt = graded.filter((s) => Number(s.hwDone) === 1).length;
@@ -27,13 +41,11 @@ export async function GET() {
   const hwMissCnt = graded.filter((s) => Number(s.hwDone) === 0).length;
   const hwRate = graded.length ? Math.round((hwSum / graded.length) * 100) : 0;
 
-  // 테스트 미입력(null)은 그날 테스트를 안 본 것 → 통계 제외. 만점 기본 10.
   const testRows = docs
     .filter((s) => s.testScore != null)
     .sort((a, b) => isoDate(a.date).localeCompare(isoDate(b.date)))
     .map((s) => {
       const iso = isoDate(s.date);
-      // 유효 만점: 학생별 override > 반 설정 > 기본 10
       const max = s.testMaxOverride ?? maxMap[`${iso}|${s.subject}`] ?? 10;
       return {
         date: md(iso),

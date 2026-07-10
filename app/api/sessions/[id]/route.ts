@@ -43,7 +43,7 @@ export async function PATCH(
   doc.submitted = true;
   await doc.save();
 
-  const maxMap = await buildMaxMap();
+  const maxMap = await buildMaxMap(String(doc.term));
   return NextResponse.json(serializeSession(doc.toObject(), maxMap));
 }
 

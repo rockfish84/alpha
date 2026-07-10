@@ -540,51 +540,62 @@ export function StudentPortal({
   me: Me;
   onLogout: () => void;
 }) {
-  const subjects = me.subjects ?? ["수학"];
+  const terms = me.terms ?? [];
+  const [termId, setTermId] = useState(
+    () => (terms.find((t) => t.active) ?? terms[0])?.id ?? ""
+  );
+  const term = terms.find((t) => t.id === termId) ?? terms[0];
+  const subjects = term?.subjects ?? [];
+  const clinicDates = term?.clinicDates ?? [];
+
   const [tab, setTab] = useState("input");
-  const [subject, setSubject] = useState(subjects[0]);
+  const [subject, setSubject] = useState(subjects[0] ?? "");
   const [date, setDate] = useState("");
   const [sessions, setSessions] = useState<ClinicSession[]>([]);
-  const [clinicDates, setClinicDates] = useState<string[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
   const reloadSessions = async () => {
+    if (!term) return;
     const [s, st] = await Promise.all([
-      api.get("/api/sessions"),
-      api.get("/api/stats"),
+      api.get(`/api/sessions?term=${term.id}`),
+      api.get(`/api/stats?term=${term.id}`),
     ]);
     setSessions(s);
     setStats(st);
   };
 
+  // 학기 변경 시: 과목·날짜 초기화 + 재조회
   useEffect(() => {
-    (async () => {
-      try {
-        const [s, cfg, st] = await Promise.all([
-          api.get("/api/sessions"),
-          api.get("/api/config"),
-          api.get("/api/stats"),
-        ]);
+    if (!term) {
+      setLoading(false);
+      return;
+    }
+    setSubject(term.subjects[0] ?? "");
+    setDate(pickDefaultDate(term.clinicDates));
+    setLoading(true);
+    Promise.all([
+      api.get(`/api/sessions?term=${term.id}`),
+      api.get(`/api/stats?term=${term.id}`),
+    ])
+      .then(([s, st]) => {
         setSessions(s);
         setStats(st);
-        const dates: string[] = cfg.clinicDates ?? [];
-        setClinicDates(dates);
-        if (dates.length) setDate(pickDefaultDate(dates));
-      } catch (e: any) {
-        setErr(e.message || "데이터를 불러오지 못했습니다.");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+      })
+      .catch((e: any) => setErr(e.message || "데이터를 불러오지 못했습니다."))
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [termId]);
 
   const mine = sessions;
   const current = mine.find((s) => s.date === date && s.subject === subject);
+  const readOnly = !term?.active; // 지난 학기는 조회 전용
 
   const handleSave = async (v: ClinicSession) => {
+    if (!term) return;
     const payload = {
+      term: term.id,
       date,
       subject,
       attendance: v.attendance,
@@ -624,105 +635,127 @@ export function StudentPortal({
     { k: "stats", label: "통계", icon: <TrendingUp size={18} /> },
   ];
 
+  // 학기 선택 바
+  const termBar = terms.length > 0 && (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        marginBottom: 18,
+        flexWrap: "wrap",
+      }}
+    >
+      <span style={{ fontSize: 13, fontWeight: 700, color: T.sub }}>학기</span>
+      <select
+        style={{ ...inputBase, width: "auto", minWidth: 180, padding: "8px 12px" }}
+        value={termId}
+        onChange={(e) => setTermId(e.target.value)}
+      >
+        {terms.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name}
+            {t.active ? " (진행중)" : ""}
+          </option>
+        ))}
+      </select>
+      {readOnly && (
+        <span
+          style={{
+            fontSize: 12.5,
+            color: T.warn,
+            background: T.warnSoft,
+            padding: "4px 10px",
+            borderRadius: 999,
+            fontWeight: 700,
+          }}
+        >
+          지난 학기 · 조회 전용
+        </span>
+      )}
+    </div>
+  );
+
   return (
     <Shell
       role="student"
       name={me.name}
-      sub={`${me.grade ?? ""} · ${subjects.join(", ")}`}
+      sub={`${term?.grade ?? ""}${term ? " · " : ""}${subjects.join(", ")}`}
       nav={NAV}
       tab={tab}
       setTab={setTab}
       onLogout={onLogout}
     >
-      {loading ? (
+      {terms.length === 0 ? (
+        <div style={{ padding: 40, color: T.muted }}>
+          등록된 학기가 없습니다. 선생님께 문의하세요.
+        </div>
+      ) : loading ? (
         <div style={{ padding: 40, color: T.muted }}>불러오는 중…</div>
       ) : err ? (
         <div style={{ padding: 40, color: T.bad }}>{err}</div>
       ) : (
         <>
+          {termBar}
           {tab === "input" && (
             <div style={{ maxWidth: 640 }}>
               <SectionTitle>클리닉 입력</SectionTitle>
-              <Card style={{ padding: 16, marginBottom: 16 }}>
-                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                  <div style={{ flex: 1, minWidth: 150 }}>
-                    <div
-                      style={{
-                        fontSize: 12.5,
-                        fontWeight: 700,
-                        color: T.sub,
-                        marginBottom: 6,
-                      }}
-                    >
-                      과목
-                    </div>
-                    <select
-                      style={inputBase}
-                      value={subject}
-                      onChange={(e) => setSubject(e.target.value)}
-                    >
-                      {subjects.map((s) => (
-                        <option key={s}>{s}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div style={{ flex: 1, minWidth: 150 }}>
-                    <div
-                      style={{
-                        fontSize: 12.5,
-                        fontWeight: 700,
-                        color: T.sub,
-                        marginBottom: 6,
-                      }}
-                    >
-                      클리닉 날짜
-                    </div>
-                    <select
-                      style={inputBase}
-                      value={date}
-                      onChange={(e) => setDate(e.target.value)}
-                    >
-                      {clinicDates.map((d) => (
-                        <option key={d} value={d}>
-                          {md(d)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </Card>
-
-              {current?.submitted ? (
-                <Card style={{ padding: 20 }}>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      marginBottom: 14,
-                      color: T.ok,
-                      fontWeight: 700,
-                      fontSize: 14,
-                    }}
-                  >
-                    <CheckCircle2 size={18} /> {md(date)} 응답이 제출되었습니다.
-                    자유롭게 수정하거나 삭제할 수 있어요.
-                  </div>
-                  <ClinicForm
-                    key={`${date}|${subject}|edit`}
-                    initial={{ ...current, _existing: true }}
-                    onSave={handleSave}
-                    onDelete={() => handleDelete(current.id)}
-                  />
+              {readOnly ? (
+                <Card style={{ padding: 20, color: T.sub, fontSize: 14 }}>
+                  지난 학기는 <b>내 이력·통계</b>에서 조회만 가능합니다. 입력은 진행중인
+                  학기에서만 할 수 있어요.
                 </Card>
               ) : (
-                <Card style={{ padding: 20 }}>
-                  <ClinicForm
-                    key={`${date}|${subject}|new`}
-                    initial={blankSession(me.id, date, subject)}
-                    onSave={handleSave}
-                  />
-                </Card>
+                <>
+                  <Card style={{ padding: 16, marginBottom: 16 }}>
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ flex: 1, minWidth: 150 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: T.sub, marginBottom: 6 }}>
+                          과목
+                        </div>
+                        <select style={inputBase} value={subject} onChange={(e) => setSubject(e.target.value)}>
+                          {subjects.map((s) => (
+                            <option key={s}>{s}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 150 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: T.sub, marginBottom: 6 }}>
+                          클리닉 날짜
+                        </div>
+                        <select style={inputBase} value={date} onChange={(e) => setDate(e.target.value)}>
+                          {clinicDates.map((d) => (
+                            <option key={d} value={d}>
+                              {md(d)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </Card>
+
+                  {current?.submitted ? (
+                    <Card style={{ padding: 20 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, color: T.ok, fontWeight: 700, fontSize: 14 }}>
+                        <CheckCircle2 size={18} /> {md(date)} 응답이 제출되었습니다. 자유롭게 수정하거나 삭제할 수 있어요.
+                      </div>
+                      <ClinicForm
+                        key={`${date}|${subject}|edit`}
+                        initial={{ ...current, _existing: true }}
+                        onSave={handleSave}
+                        onDelete={() => handleDelete(current.id)}
+                      />
+                    </Card>
+                  ) : (
+                    <Card style={{ padding: 20 }}>
+                      <ClinicForm
+                        key={`${date}|${subject}|new`}
+                        initial={blankSession(me.id, date, subject)}
+                        onSave={handleSave}
+                      />
+                    </Card>
+                  )}
+                </>
               )}
             </div>
           )}

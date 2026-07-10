@@ -72,13 +72,26 @@ export function pickDefaultDate(dates: string[]): string {
 
 /* ============================== CLIENT TYPES ============================== */
 export interface Student {
-  id: string;
+  id: string; // student 계정 id
+  enrollmentId?: string; // 이 학기 등록 id (roster 수정/삭제용)
   name: string;
   username: string;
   password?: string; // 관리자 조회용 평문 (부모 번호)
   grade: string;
   status: "재원" | "퇴원";
   subjects: string[];
+}
+
+export interface TermInfo {
+  id: string;
+  name: string;
+  active: boolean;
+  clinicDates: string[];
+  subjects: string[];
+  grade?: string; // 학생 포털: 이 학기 내 학년
+  startDate?: string;
+  endDate?: string;
+  order?: number;
 }
 
 export interface ClinicSession {
@@ -109,8 +122,7 @@ export interface Me {
   role: "student" | "admin";
   id: string;
   name: string;
-  grade?: string;
-  subjects?: string[];
+  terms?: TermInfo[]; // 학생: 등록된 학기들 (최신순)
 }
 
 export interface Stats {

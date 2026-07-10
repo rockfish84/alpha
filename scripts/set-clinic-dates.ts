@@ -1,33 +1,30 @@
 /**
- * 클리닉 날짜(Settings.clinicDates) 설정.
- *
- *   # 인자로 날짜 지정 (기존 목록에 추가/병합)
+ * 학기의 클리닉 날짜 설정.
+ *   # 활성 학기에 날짜 추가(병합)
  *   npx tsx scripts/set-clinic-dates.ts 2026-09-05 2026-09-06
- *
- *   # 인자 없으면: 오늘부터 END 까지의 주말(토/일)로 채움
+ *   # 특정 학기 지정
+ *   npx tsx scripts/set-clinic-dates.ts --term="2026 가을" 2026-09-05
+ *   # 인자 없으면 오늘~END 주말 자동
  *   npx tsx scripts/set-clinic-dates.ts
- *
- *   # 기존 목록을 무시하고 완전히 교체
+ *   # 기존 목록 무시하고 교체
  *   REPLACE=1 npx tsx scripts/set-clinic-dates.ts 2026-07-11 2026-07-12
  */
 import "dotenv/config";
 import mongoose from "mongoose";
 import { dbConnect } from "../lib/db";
-import { Settings } from "../lib/models";
+import { Term } from "../lib/models";
 
-const END = "2026-08-31"; // 기본 주말 생성 종료일
+const END = "2026-08-31";
 
 function iso(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
-
 function weekendsUntil(endIso: string): string[] {
   const out: string[] = [];
-  const start = new Date();
-  const cur = new Date(`${iso(start)}T00:00:00.000Z`);
+  const cur = new Date(`${iso(new Date())}T00:00:00.000Z`);
   const end = new Date(`${endIso}T00:00:00.000Z`);
   while (cur <= end) {
-    const day = cur.getUTCDay(); // 0=일, 6=토
+    const day = cur.getUTCDay();
     if (day === 0 || day === 6) out.push(iso(cur));
     cur.setUTCDate(cur.getUTCDate() + 1);
   }
@@ -35,25 +32,29 @@ function weekendsUntil(endIso: string): string[] {
 }
 
 async function main() {
+  const termArg =
+    process.argv.find((x) => x.startsWith("--term="))?.slice(7) || process.env.TERM;
   const args = process.argv.slice(2).filter((a) => /^\d{4}-\d{2}-\d{2}$/.test(a));
   const replace = process.env.REPLACE === "1";
-
   const incoming = args.length ? args : weekendsUntil(END);
 
   await dbConnect();
-  const settings = await Settings.findOne({ key: "app" }).lean();
-  const existing = replace ? [] : settings?.clinicDates ?? [];
+  const term = termArg
+    ? await Term.findOne({ name: termArg })
+    : await Term.findOne({ active: true });
+  if (!term) {
+    console.error(`대상 학기 없음. --term="이름" 지정 또는 활성 학기 필요.`);
+    process.exit(1);
+  }
 
-  const merged = [...new Set([...existing, ...incoming])].sort();
+  const existing = replace ? [] : term.clinicDates ?? [];
+  term.clinicDates = [...new Set([...existing, ...incoming])].sort();
+  await term.save();
 
-  await Settings.findOneAndUpdate(
-    { key: "app" },
-    { $set: { clinicDates: merged } },
-    { upsert: true, new: true }
+  console.log(
+    `● '${term.name}' 클리닉 날짜 ${term.clinicDates.length}일 ${replace ? "(교체)" : "(병합)"}:`
   );
-
-  console.log(`● 클리닉 날짜 ${merged.length}일 ${replace ? "(교체)" : "(병합)"}:`);
-  console.log("  " + merged.join(", "));
+  console.log("  " + term.clinicDates.join(", "));
   await mongoose.disconnect();
   console.log("✔ 완료");
 }

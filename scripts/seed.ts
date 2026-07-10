@@ -14,7 +14,7 @@ import "dotenv/config";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 import { dbConnect } from "../lib/db";
-import { Admin, Student, Session, TestConfig, Settings } from "../lib/models";
+import { Admin, Student, Session, TestConfig, Term, Enrollment } from "../lib/models";
 import { toDate } from "../lib/date";
 
 const CLINIC_DATES = [
@@ -130,36 +130,40 @@ async function main() {
   );
   console.log(`● 관리자 계정: ${adminU} (비밀번호: ${adminP})`);
 
-  // 2) 설정
-  await Settings.findOneAndUpdate(
-    { key: "app" },
-    { $set: { subjects: SUBJECTS, clinicDates: CLINIC_DATES } },
+  // 2) 학기 (데모)
+  const term = await Term.findOneAndUpdate(
+    { name: "데모 학기" },
+    {
+      $set: { subjects: SUBJECTS, clinicDates: CLINIC_DATES, active: true, order: 1 },
+    },
     { upsert: true, new: true }
   );
-  console.log(`● 설정: 과목 ${SUBJECTS.join(", ")} · 클리닉 ${CLINIC_DATES.length}일`);
+  console.log(`● 학기: ${term!.name} · 과목 ${SUBJECTS.join(", ")} · 클리닉 ${CLINIC_DATES.length}일`);
 
-  // 3) 데모 학생
+  // 3) 데모 학생 + 등록
   for (const s of demoStudents) {
     const hash = await bcrypt.hash(s.password, 10);
-    await Student.findOneAndUpdate(
+    const student = await Student.findOneAndUpdate(
       { username: s.username },
-      {
-        $set: { name: s.name, grade: s.grade, subjects: s.subjects, status: s.status },
-        $setOnInsert: { password: hash },
-      },
+      { $set: { name: s.name }, $setOnInsert: { password: hash, passwordPlain: s.password } },
       { upsert: true, new: true }
+    );
+    await Enrollment.updateOne(
+      { term: term!._id, student: student!._id },
+      { $set: { grade: s.grade, subjects: s.subjects, status: s.status } },
+      { upsert: true }
     );
   }
   const students = await Student.find().lean();
   const idByUser: Record<string, mongoose.Types.ObjectId> = {};
   for (const st of students) idByUser[st.username] = st._id as mongoose.Types.ObjectId;
-  console.log(`● 데모 학생 ${demoStudents.length}명`);
+  console.log(`● 데모 학생 ${demoStudents.length}명 등록`);
 
   // 4) 테스트 만점 개수
   for (const [key, maxScore] of Object.entries(seedTestMax)) {
     const [date, subject] = key.split("|");
     await TestConfig.findOneAndUpdate(
-      { subject, date: toDate(date) },
+      { term: term!._id, subject, date: toDate(date) },
       { $set: { maxScore } },
       { upsert: true, new: true }
     );
@@ -173,7 +177,7 @@ async function main() {
     if (!student) continue;
     const { username, subject, date, ...rest } = ss;
     await Session.findOneAndUpdate(
-      { student, subject, date: toDate(date) },
+      { term: term!._id, student, subject, date: toDate(date) },
       { $set: rest },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
@@ -183,11 +187,12 @@ async function main() {
 
   // 6) 인덱스 확정
   await Promise.all([
+    Term.syncIndexes(),
+    Enrollment.syncIndexes(),
     Student.syncIndexes(),
     Session.syncIndexes(),
     TestConfig.syncIndexes(),
     Admin.syncIndexes(),
-    Settings.syncIndexes(),
   ]);
   console.log("● 인덱스 동기화 완료");
 

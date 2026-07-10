@@ -13,7 +13,7 @@ import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 import xlsx from "xlsx";
 import { dbConnect } from "../lib/db";
-import { Student, Settings } from "../lib/models";
+import { Term, Student, Enrollment } from "../lib/models";
 
 const FILE1 = "공수1.2 심화반 명단 .xlsx";
 const FILE2 = "7.10 기준 특강 수강신청 명단.xlsx";
@@ -131,7 +131,22 @@ async function main() {
   }
 
   await dbConnect();
-  console.log("\n● MongoDB 연결됨, 계정 반영 중…");
+  console.log("\n● MongoDB 연결됨");
+
+  // 대상 학기: --term="이름" 또는 TERM 환경변수, 없으면 활성 학기
+  const termArg =
+    process.argv.find((x) => x.startsWith("--term="))?.slice(7) || process.env.TERM;
+  const term = termArg
+    ? await Term.findOne({ name: termArg })
+    : await Term.findOne({ active: true });
+  if (!term) {
+    console.error(
+      `대상 학기를 찾을 수 없습니다. --term="학기이름" 지정 또는 활성 학기 필요.`
+    );
+    process.exit(1);
+  }
+  console.log(`● 대상 학기: ${term.name}`);
+
   let created = 0;
   for (const a of accounts) {
     if (!a.password) {
@@ -139,21 +154,32 @@ async function main() {
       continue;
     }
     const hash = await bcrypt.hash(a.password, 10);
-    await Student.findOneAndUpdate(
+    // 계정(정체성): 새로 만들 때만 비번 설정, 이름은 항상 갱신
+    const student = await Student.findOneAndUpdate(
       { username: a.username },
-      { $set: { name: a.name, grade: a.grade, subjects: a.subjects, status: "재원", password: hash, passwordPlain: a.password } },
+      {
+        $set: { name: a.name },
+        $setOnInsert: { password: hash, passwordPlain: a.password },
+      },
       { upsert: true, new: true }
+    );
+    // 이 학기 등록
+    await Enrollment.updateOne(
+      { term: term._id, student: student!._id },
+      { $set: { grade: a.grade, subjects: a.subjects, status: "재원" } },
+      { upsert: true }
     );
     created++;
   }
-  // 관리자 현황판 과목 필터용: Settings.subjects 갱신
-  await Settings.findOneAndUpdate(
-    { key: "app" },
-    { $set: { subjects: allSubjects } },
-    { upsert: true, new: true }
+
+  // 이 학기 반 목록에 반영 (합집합)
+  term.subjects = [...new Set([...(term.subjects ?? []), ...allSubjects])];
+  await term.save();
+
+  await Enrollment.syncIndexes();
+  console.log(
+    `● '${term.name}'에 ${created}명 등록 완료, 반 ${term.subjects.length}종`
   );
-  await Student.syncIndexes();
-  console.log(`● 계정 ${created}명 반영 완료, Settings.subjects ${allSubjects.length}종 갱신`);
   await mongoose.disconnect();
   console.log("✔ 완료");
 }

@@ -1,41 +1,37 @@
 import { NextResponse } from "next/server";
 import { dbConnect } from "@/lib/db";
-import { Session } from "@/lib/models";
+import { Session, Enrollment } from "@/lib/models";
 import { requireStudent } from "@/lib/auth";
 import { serializeSession } from "@/lib/serialize";
 import { buildMaxMap } from "@/lib/testconfig";
+import { resolveTerm } from "@/lib/term";
 import { toDate } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/sessions?subject=&from=&to=  -> 내 클리닉 이력
+// GET /api/sessions?term=ID&subject=&from=&to=  -> 그 학기 내 클리닉 이력
 export async function GET(req: Request) {
   const g = await requireStudent();
   if (!g.ok) return g.res;
 
   await dbConnect();
   const { searchParams } = new URL(req.url);
-  const subject = searchParams.get("subject");
-  const from = searchParams.get("from");
-  const to = searchParams.get("to");
+  const term = await resolveTerm(searchParams.get("term"));
+  if (!term) return NextResponse.json([]);
 
-  const query: Record<string, any> = { student: g.user.id };
+  const query: Record<string, any> = { student: g.user.id, term: term._id };
+  const subject = searchParams.get("subject");
   if (subject) query.subject = subject;
-  if (from || to) {
-    query.date = {};
-    if (from) query.date.$gte = toDate(from);
-    if (to) query.date.$lte = toDate(to);
-  }
 
   const [docs, maxMap] = await Promise.all([
     Session.find(query).sort({ date: 1 }).lean(),
-    buildMaxMap(),
+    buildMaxMap(String(term._id)),
   ]);
 
   return NextResponse.json(docs.map((d) => serializeSession(d, maxMap)));
 }
 
-// POST /api/sessions -> 출결·질문 제출 (upsert). 학생 입력 필드만 갱신.
+// POST /api/sessions -> 출결·질문 제출 (upsert, 학생 입력 필드만)
 export async function POST(req: Request) {
   const g = await requireStudent();
   if (!g.ok) return g.res;
@@ -43,13 +39,18 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const { date, subject } = body;
   if (!date || !subject) {
-    return NextResponse.json(
-      { error: "날짜와 과목은 필수입니다." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "날짜와 과목은 필수입니다." }, { status: 400 });
   }
 
   await dbConnect();
+  const term = await resolveTerm(body.term);
+  if (!term) return NextResponse.json({ error: "학기가 없습니다." }, { status: 400 });
+
+  // 이 학기에 등록된 학생만 제출 가능
+  const enr = await Enrollment.findOne({ term: term._id, student: g.user.id }).lean();
+  if (!enr) {
+    return NextResponse.json({ error: "이 학기에 등록되어 있지 않습니다." }, { status: 403 });
+  }
 
   const studentFields = {
     submitted: true,
@@ -65,11 +66,11 @@ export async function POST(req: Request) {
   };
 
   const doc = await Session.findOneAndUpdate(
-    { student: g.user.id, subject, date: toDate(date) },
+    { term: term._id, student: g.user.id, subject, date: toDate(date) },
     { $set: studentFields },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   ).lean();
 
-  const maxMap = await buildMaxMap();
+  const maxMap = await buildMaxMap(String(term._id));
   return NextResponse.json(serializeSession(doc, maxMap));
 }

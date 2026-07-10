@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ role: "admin", id: session.user.id, name: "관리자" });
   }
 
-  // student
+  // student (재원/퇴원 상태는 학기별 Enrollment 로 관리 → 로그인 자체는 계정 존재로 허용)
   const student = await Student.findOne({ username });
   if (!student || !(await bcrypt.compare(password, student.password))) {
     return NextResponse.json(
@@ -37,21 +37,9 @@ export async function POST(req: Request) {
       { status: 401 }
     );
   }
-  if (student.status === "퇴원") {
-    return NextResponse.json(
-      { error: "퇴원 처리된 계정입니다. 관리자에게 문의하세요." },
-      { status: 403 }
-    );
-  }
 
   session.user = { id: String(student._id), role: "student", name: student.name };
   await session.save();
 
-  return NextResponse.json({
-    role: "student",
-    id: String(student._id),
-    name: student.name,
-    grade: student.grade,
-    subjects: student.subjects,
-  });
+  return NextResponse.json({ role: "student", id: String(student._id), name: student.name });
 }
