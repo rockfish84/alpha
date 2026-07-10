@@ -49,10 +49,19 @@ function ResponseDetail({ r }: { r: ClinicSession }) {
         fontSize: 14,
       }}
     >
-      <div style={{ width: 130, flexShrink: 0, color: T.sub, fontWeight: 700 }}>
+      <div style={{ width: 110, flexShrink: 0, color: T.sub, fontWeight: 700 }}>
         {k}
       </div>
-      <div style={{ color: T.ink, whiteSpace: "pre-line" }}>
+      <div
+        style={{
+          color: T.ink,
+          whiteSpace: "pre-line",
+          minWidth: 0,
+          flex: 1,
+          overflowWrap: "anywhere",
+          wordBreak: "break-word",
+        }}
+      >
         {v || <span style={{ color: T.muted }}>—</span>}
       </div>
     </div>
