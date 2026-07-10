@@ -39,11 +39,13 @@ export function serializeSession(
     request: (doc.request ?? "") as string,
     hwDone: (doc.hwDone ?? null) as number | null, // 1(O)/0.5(△)/0(X)/null
     testScore: (doc.testScore ?? null) as number | null,
+    testMaxOverride: (doc.testMaxOverride ?? null) as number | null,
     testDetail: (doc.testDetail ?? "") as string,
     solved: (doc.solved ?? "") as string,
     adminNote: (doc.adminNote ?? "") as string,
-    // 테스트 만점 기본 10 (별도 설정이 없으면 10으로 간주)
-    max: maxMap ? maxMap[`${date}|${subject}`] ?? 10 : 10,
+    // 유효 만점: 학생별 override > 반 설정 > 기본 10
+    max: (doc.testMaxOverride ??
+      (maxMap ? maxMap[`${date}|${subject}`] ?? 10 : 10)) as number,
   };
 }
 

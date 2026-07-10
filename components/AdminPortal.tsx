@@ -332,30 +332,50 @@ function AdminBoard({
                       </div>
                     </td>
                     <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
-                      <input
-                        type="number"
-                        value={r?.testScore ?? ""}
-                        placeholder="-"
-                        onChange={(e) =>
-                          patch({
-                            testScore:
-                              e.target.value === ""
-                                ? null
-                                : Number(e.target.value),
-                          })
-                        }
-                        style={{
-                          ...inputBase,
-                          width: 56,
-                          padding: "6px 8px",
-                          textAlign: "center",
-                        }}
-                      />
-                      <span
-                        style={{ color: T.muted, fontSize: 13, marginLeft: 4 }}
-                      >
-                        / {max}
-                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <input
+                          type="number"
+                          value={r?.testScore ?? ""}
+                          placeholder="-"
+                          onChange={(e) =>
+                            patch({
+                              testScore:
+                                e.target.value === ""
+                                  ? null
+                                  : Number(e.target.value),
+                            })
+                          }
+                          style={{
+                            ...inputBase,
+                            width: 52,
+                            padding: "6px 8px",
+                            textAlign: "center",
+                          }}
+                        />
+                        <span style={{ color: T.muted, fontSize: 13 }}>/</span>
+                        <input
+                          type="number"
+                          title="이 학생 만점 (반과 다를 때만 수정)"
+                          value={r?.testMaxOverride ?? max}
+                          onChange={(e) =>
+                            patch({
+                              testMaxOverride:
+                                e.target.value === "" ||
+                                Number(e.target.value) === max
+                                  ? null
+                                  : Number(e.target.value),
+                            })
+                          }
+                          style={{
+                            ...inputBase,
+                            width: 44,
+                            padding: "6px 6px",
+                            textAlign: "center",
+                            color: r?.testMaxOverride != null ? T.primary : T.muted,
+                            fontWeight: r?.testMaxOverride != null ? 700 : 400,
+                          }}
+                        />
+                      </div>
                     </td>
                     <td style={{ padding: "10px 12px" }}>
                       <input
@@ -555,7 +575,7 @@ function AdminQuickGrade({
 
               <div>
                 <div style={{ ...lbl, marginBottom: 5 }}>테스트</div>
-                <div style={{ display: "flex", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                   <input
                     type="number"
                     inputMode="numeric"
@@ -568,12 +588,34 @@ function AdminQuickGrade({
                     }
                     style={{
                       ...inputBase,
-                      width: 64,
+                      width: 60,
                       padding: "8px",
                       textAlign: "center",
                     }}
                   />
-                  <span style={{ color: T.muted, fontSize: 14, marginLeft: 6 }}>/ {max}</span>
+                  <span style={{ color: T.muted, fontSize: 14 }}>/</span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    title="이 학생 만점 (반과 다를 때만 수정)"
+                    value={r?.testMaxOverride ?? max}
+                    onChange={(e) =>
+                      patch({
+                        testMaxOverride:
+                          e.target.value === "" || Number(e.target.value) === max
+                            ? null
+                            : Number(e.target.value),
+                      })
+                    }
+                    style={{
+                      ...inputBase,
+                      width: 52,
+                      padding: "8px",
+                      textAlign: "center",
+                      color: r?.testMaxOverride != null ? T.primary : T.muted,
+                      fontWeight: r?.testMaxOverride != null ? 700 : 400,
+                    }}
+                  />
                 </div>
               </div>
             </div>
@@ -1111,6 +1153,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
           request: "",
           hwDone: null,
           testScore: null,
+          testMaxOverride: null,
           testDetail: "",
           solved: "",
           adminNote: "",

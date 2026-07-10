@@ -33,7 +33,8 @@ export async function GET() {
     .sort((a, b) => isoDate(a.date).localeCompare(isoDate(b.date)))
     .map((s) => {
       const iso = isoDate(s.date);
-      const max = maxMap[`${iso}|${s.subject}`] ?? 10;
+      // 유효 만점: 학생별 override > 반 설정 > 기본 10
+      const max = s.testMaxOverride ?? maxMap[`${iso}|${s.subject}`] ?? 10;
       return {
         date: md(iso),
         pct: Math.round((Number(s.testScore) / max) * 100),

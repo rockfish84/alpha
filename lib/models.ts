@@ -36,6 +36,7 @@ const SessionSchema = new Schema(
     // 관리자 입력
     hwDone: { type: Number, default: null }, // 과제: 1(O) / 0.5(△) / 0(X) / null(미입력)
     testScore: { type: Number, default: null }, // 테스트 맞은 개수
+    testMaxOverride: { type: Number, default: null }, // 이 학생만 다른 만점일 때 (없으면 반 기본값)
     testDetail: { type: String, default: "" }, // 테스트 문항 (예: 3,6,9번)
     solved: { type: String, default: "" }, // 해결 문제
     adminNote: { type: String, default: "" }, // 비고 / 특이사항

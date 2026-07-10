@@ -37,6 +37,7 @@ export async function PATCH(req: Request) {
   const set: Record<string, any> = {};
   if ("hwDone" in patch) set.hwDone = patch.hwDone;
   if ("testScore" in patch) set.testScore = patch.testScore;
+  if ("testMaxOverride" in patch) set.testMaxOverride = patch.testMaxOverride;
   if ("testDetail" in patch) set.testDetail = patch.testDetail ?? "";
   if ("solved" in patch) set.solved = patch.solved ?? "";
   if ("adminNote" in patch) set.adminNote = patch.adminNote ?? "";
