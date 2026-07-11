@@ -42,6 +42,11 @@ export async function PATCH(req: Request) {
   if (!term) return NextResponse.json({ error: "학기가 없습니다." }, { status: 400 });
 
   const set: Record<string, any> = {};
+  if ("attnAdmin" in patch) set.attnAdmin = !!patch.attnAdmin;
+  if ("attendance" in patch) set.attendance = patch.attendance;
+  if ("submitted" in patch) set.submitted = !!patch.submitted;
+  if ("lateTime" in patch) set.lateTime = patch.lateTime ?? "";
+  if ("absentReason" in patch) set.absentReason = patch.absentReason ?? "";
   if ("hwDone" in patch) set.hwDone = patch.hwDone;
   if ("testScore" in patch) set.testScore = patch.testScore;
   if ("testMaxOverride" in patch) set.testMaxOverride = patch.testMaxOverride;

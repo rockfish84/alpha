@@ -53,6 +53,8 @@ const SessionSchema = new Schema(
 
     // 학생 입력
     submitted: { type: Boolean, default: false },
+    // 관리자가 직접 출석을 기록한 경우 (학생 미제출이어도 출석 표시)
+    attnAdmin: { type: Boolean, default: false },
     attendance: { type: String, enum: ["출석", "지각", "결석"], default: "출석" },
     lateTime: { type: String, default: "" },
     absentReason: { type: String, default: "" },

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import {
   T,
+  FONT,
   md,
   attTone,
   pickDefaultDate,
@@ -37,6 +38,70 @@ import {
   lbl,
 } from "./ui";
 import { Shell, type NavItem } from "./Shell";
+
+/* ============================== ATTENDANCE TOGGLE ==============================
+   출석 칸을 클릭하면 미제출 → 출석 → 지각 → 결석 → 미제출 순으로 순환.
+   관리자가 직접 기록하면 attnAdmin=true 로 저장(학생 제출 여부와 별개). */
+function AttToggle({
+  submitted,
+  attnAdmin,
+  attendance,
+  lateTime,
+  onCycle,
+}: {
+  submitted: boolean;
+  attnAdmin: boolean;
+  attendance: "출석" | "지각" | "결석";
+  lateTime: string;
+  onCycle: (patch: Record<string, any>) => void;
+}) {
+  const shown = submitted || attnAdmin;
+  const tone: "ok" | "warn" | "bad" | "muted" = shown ? attTone[attendance] : "muted";
+  const map = {
+    ok: [T.okSoft, T.ok],
+    warn: [T.warnSoft, T.warn],
+    bad: [T.badSoft, T.bad],
+    muted: ["#EEF1F6", T.sub],
+  } as const;
+  const [bg, fg] = map[tone];
+
+  const next = () => {
+    if (!shown) return onCycle({ attnAdmin: true, attendance: "출석" });
+    if (attendance === "출석") return onCycle({ attnAdmin: true, attendance: "지각" });
+    if (attendance === "지각") return onCycle({ attnAdmin: true, attendance: "결석" });
+    // 결석 → 미제출로 해제. 단, 학생이 제출한 건은 다시 출석으로 순환(미제출 불가).
+    return submitted
+      ? onCycle({ attnAdmin: true, attendance: "출석" })
+      : onCycle({ attnAdmin: false });
+  };
+
+  const label = shown
+    ? attendance + (attendance === "지각" && lateTime ? ` ${lateTime}` : "")
+    : "미제출";
+
+  return (
+    <button
+      onClick={next}
+      title="클릭하여 출석 상태 변경 (미제출 → 출석 → 지각 → 결석)"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "4px 11px",
+        borderRadius: 999,
+        fontSize: 12.5,
+        fontWeight: 700,
+        fontFamily: FONT,
+        background: bg,
+        color: fg,
+        border: "none",
+        cursor: "pointer",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
 
 /* ============================== RESPONSE DETAIL ============================== */
 function ResponseDetail({ r }: { r: ClinicSession }) {
@@ -294,16 +359,13 @@ function AdminBoard({
                       </div>
                     </td>
                     <td style={{ padding: "10px 12px" }}>
-                      {r?.submitted ? (
-                        <Pill tone={attTone[r.attendance]}>
-                          {r.attendance}
-                          {r.attendance === "지각" && r.lateTime
-                            ? ` ${r.lateTime}`
-                            : ""}
-                        </Pill>
-                      ) : (
-                        <Pill tone="bad">미제출</Pill>
-                      )}
+                      <AttToggle
+                        submitted={!!r?.submitted}
+                        attnAdmin={!!r?.attnAdmin}
+                        attendance={r?.attendance ?? "출석"}
+                        lateTime={r?.lateTime ?? ""}
+                        onCycle={(p) => patch(p)}
+                      />
                     </td>
                     <td style={{ padding: "10px 12px" }}>
                       {r?.submitted ? (
@@ -1451,6 +1513,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
           subject,
           date,
           submitted: false,
+          attnAdmin: false,
           attendance: "출석",
           lateTime: "",
           absentReason: "",

@@ -100,6 +100,7 @@ export interface ClinicSession {
   subject: string;
   date: string; // YYYY-MM-DD
   submitted: boolean;
+  attnAdmin: boolean; // 관리자가 직접 출석을 기록했는지 (학생 미제출이어도 출석 표시)
   attendance: "출석" | "지각" | "결석";
   lateTime: string;
   absentReason: string;
@@ -148,6 +149,7 @@ export function blankSession(
     subject,
     date,
     submitted: false,
+    attnAdmin: false,
     attendance: "출석",
     lateTime: "",
     absentReason: "",

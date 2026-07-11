@@ -42,6 +42,7 @@ export function serializeSession(
     subject,
     date,
     submitted: !!doc.submitted,
+    attnAdmin: !!doc.attnAdmin,
     attendance: doc.attendance as "출석" | "지각" | "결석",
     lateTime: (doc.lateTime ?? "") as string,
     absentReason: (doc.absentReason ?? "") as string,

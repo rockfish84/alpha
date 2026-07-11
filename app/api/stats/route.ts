@@ -61,7 +61,7 @@ export async function GET(req: Request) {
 
   const submittedCnt = docs.filter((s) => s.submitted).length;
   const attendedCnt = docs.filter(
-    (s) => s.submitted && s.attendance === "출석"
+    (s) => (s.submitted || s.attnAdmin) && s.attendance === "출석"
   ).length;
 
   return NextResponse.json({
