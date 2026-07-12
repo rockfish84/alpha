@@ -34,6 +34,7 @@ import {
   SectionTitle,
   MiniToggle,
   Segmented,
+  LazyInput,
   inputBase,
   lbl,
 } from "./ui";
@@ -293,27 +294,24 @@ function AdminBoard({
           </div>
           <div style={{ minWidth: 130 }}>
             <div style={lbl}>테스트 만점 개수 (기본 10)</div>
-            <input
+            <LazyInput
               type="number"
+              inputMode="numeric"
               style={inputBase}
-              value={max}
+              value={String(max)}
               placeholder="10"
-              onChange={(e) =>
-                onSetTestMax(
-                  date,
-                  subject,
-                  e.target.value === "" ? null : Number(e.target.value)
-                )
+              onCommit={(v) =>
+                onSetTestMax(date, subject, v === "" ? null : Number(v))
               }
             />
           </div>
           <div style={{ minWidth: 180, flex: 1 }}>
             <div style={lbl}>테스트 문항 (반 공통)</div>
-            <input
+            <LazyInput
               style={inputBase}
               value={detail}
               placeholder="예: 3,6,9번"
-              onChange={(e) => onSetTestDetail(date, subject, e.target.value)}
+              onCommit={(v) => onSetTestDetail(date, subject, v)}
             />
           </div>
           <label
@@ -459,16 +457,14 @@ function AdminBoard({
                     </td>
                     <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <input
+                        <LazyInput
                           type="number"
-                          value={r?.testScore ?? ""}
+                          inputMode="numeric"
+                          value={r?.testScore == null ? "" : String(r.testScore)}
                           placeholder="-"
-                          onChange={(e) =>
+                          onCommit={(v) =>
                             patch({
-                              testScore:
-                                e.target.value === ""
-                                  ? null
-                                  : Number(e.target.value),
+                              testScore: v === "" ? null : Number(v),
                             })
                           }
                           style={{
@@ -479,17 +475,19 @@ function AdminBoard({
                           }}
                         />
                         <span style={{ color: T.muted, fontSize: 13 }}>/</span>
-                        <input
+                        <LazyInput
                           type="number"
+                          inputMode="numeric"
                           title="이 학생 만점 (반과 다를 때만 수정)"
-                          value={r?.testMaxOverride ?? max}
-                          onChange={(e) =>
+                          value={
+                            r?.testMaxOverride == null
+                              ? String(max)
+                              : String(r.testMaxOverride)
+                          }
+                          onCommit={(v) =>
                             patch({
                               testMaxOverride:
-                                e.target.value === "" ||
-                                Number(e.target.value) === max
-                                  ? null
-                                  : Number(e.target.value),
+                                v === "" || Number(v) === max ? null : Number(v),
                             })
                           }
                           style={{
@@ -504,18 +502,18 @@ function AdminBoard({
                       </div>
                     </td>
                     <td style={{ padding: "10px 12px" }}>
-                      <input
+                      <LazyInput
                         value={r?.solved ?? ""}
                         placeholder="해결 문제"
-                        onChange={(e) => patch({ solved: e.target.value })}
+                        onCommit={(v) => patch({ solved: v })}
                         style={{ ...inputBase, width: 120, padding: "6px 8px" }}
                       />
                     </td>
                     <td style={{ padding: "10px 12px" }}>
-                      <input
+                      <LazyInput
                         value={r?.adminNote ?? ""}
                         placeholder="특이사항"
-                        onChange={(e) => patch({ adminNote: e.target.value })}
+                        onCommit={(v) => patch({ adminNote: v })}
                         style={{ ...inputBase, width: 140, padding: "6px 8px" }}
                       />
                     </td>
@@ -627,12 +625,13 @@ function AdminQuickGrade({
           </div>
           <div style={{ width: 110 }}>
             <div style={lbl}>만점 (기본 10)</div>
-            <input
+            <LazyInput
               type="number"
+              inputMode="numeric"
               style={inputBase}
-              value={max}
-              onChange={(e) =>
-                onSetTestMax(date, subject, e.target.value === "" ? null : Number(e.target.value))
+              value={String(max)}
+              onCommit={(v) =>
+                onSetTestMax(date, subject, v === "" ? null : Number(v))
               }
             />
           </div>
@@ -702,14 +701,14 @@ function AdminQuickGrade({
               <div>
                 <div style={{ ...lbl, marginBottom: 5 }}>테스트</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <input
+                  <LazyInput
                     type="number"
                     inputMode="numeric"
-                    value={r?.testScore ?? ""}
+                    value={r?.testScore == null ? "" : String(r.testScore)}
                     placeholder="-"
-                    onChange={(e) =>
+                    onCommit={(v) =>
                       patch({
-                        testScore: e.target.value === "" ? null : Number(e.target.value),
+                        testScore: v === "" ? null : Number(v),
                       })
                     }
                     style={{
@@ -720,17 +719,19 @@ function AdminQuickGrade({
                     }}
                   />
                   <span style={{ color: T.muted, fontSize: 14 }}>/</span>
-                  <input
+                  <LazyInput
                     type="number"
                     inputMode="numeric"
                     title="이 학생 만점 (반과 다를 때만 수정)"
-                    value={r?.testMaxOverride ?? max}
-                    onChange={(e) =>
+                    value={
+                      r?.testMaxOverride == null
+                        ? String(max)
+                        : String(r.testMaxOverride)
+                    }
+                    onCommit={(v) =>
                       patch({
                         testMaxOverride:
-                          e.target.value === "" || Number(e.target.value) === max
-                            ? null
-                            : Number(e.target.value),
+                          v === "" || Number(v) === max ? null : Number(v),
                       })
                     }
                     style={{

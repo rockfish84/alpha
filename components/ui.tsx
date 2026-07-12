@@ -493,6 +493,88 @@ export function MiniToggle({
   );
 }
 
+/* ============================== LAZY INPUT ==============================
+   타이핑은 로컬 상태로 즉시 반영(부모 리렌더·서버요청 없음), 입력을 멈추거나
+   포커스가 빠질 때만 onCommit 으로 저장 → 모바일에서도 타자 밀림 없음. */
+export function LazyInput({
+  value,
+  onCommit,
+  delay = 500,
+  style,
+  type,
+  placeholder,
+  title,
+  inputMode,
+}: {
+  value: string;
+  onCommit: (v: string) => void;
+  delay?: number;
+  style?: React.CSSProperties;
+  type?: string;
+  placeholder?: string;
+  title?: string;
+  inputMode?: React.InputHTMLAttributes<HTMLInputElement>["inputMode"];
+}) {
+  const [local, setLocal] = React.useState(value);
+  const localRef = React.useRef(value);
+  const committedRef = React.useRef(value);
+  const focused = React.useRef(false);
+  const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const commitFnRef = React.useRef(onCommit);
+  commitFnRef.current = onCommit;
+
+  // 입력 중이 아닐 때만 외부 값 반영(자동 새로고침이 타이핑을 덮어쓰지 않도록)
+  React.useEffect(() => {
+    if (!focused.current && value !== localRef.current) {
+      localRef.current = value;
+      committedRef.current = value;
+      setLocal(value);
+    }
+  }, [value]);
+
+  React.useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    []
+  );
+
+  const commit = (v: string) => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    if (v === committedRef.current) return; // 변화 없으면 저장 안 함
+    committedRef.current = v;
+    commitFnRef.current(v);
+  };
+
+  return (
+    <input
+      type={type}
+      inputMode={inputMode}
+      placeholder={placeholder}
+      title={title}
+      style={style}
+      value={local}
+      onFocus={() => {
+        focused.current = true;
+      }}
+      onChange={(e) => {
+        const v = e.target.value;
+        localRef.current = v;
+        setLocal(v);
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => commit(v), delay);
+      }}
+      onBlur={() => {
+        focused.current = false;
+        commit(localRef.current);
+      }}
+    />
+  );
+}
+
 /* ============================== TOAST ==============================
    화면 하단 중앙에 잠깐 떴다 사라지는 완료 알림. toast 는 표시할 때마다
    새 객체({id, msg})를 넣어 같은 문구도 다시 뜨게 한다. */
