@@ -198,6 +198,161 @@ function ResponseDetail({ r }: { r: ClinicSession }) {
   );
 }
 
+/* ============================== BOARD ROW (메모) ==============================
+   각 행을 React.memo 로 분리 → 한 칸을 저장해도 그 학생 행만 다시 그린다.
+   (예전엔 30명 표 전체가 매번 리렌더되어 모바일에서 타자가 밀렸음) */
+type BoardRowProps = {
+  stu: Student;
+  r: ClinicSession | undefined;
+  date: string;
+  subject: string;
+  max: number;
+  onSetAdminFields: (
+    studentId: string,
+    date: string,
+    subject: string,
+    patch: Record<string, any>
+  ) => void;
+  onView: (r: ClinicSession) => void;
+  onEditing: () => void;
+};
+const BoardRow = React.memo(function BoardRow({
+  stu,
+  r,
+  date,
+  subject,
+  max,
+  onSetAdminFields,
+  onView,
+  onEditing,
+}: BoardRowProps) {
+  const patch = (p: Record<string, any>) => onSetAdminFields(stu.id, date, subject, p);
+  return (
+    <tr style={{ borderBottom: `1px solid ${T.line}` }}>
+      <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+        <div style={{ fontWeight: 700, color: T.ink }}>{stu.name}</div>
+        <div style={{ fontSize: 12, color: T.muted }}>
+          {stu.grade}
+          {stu.status === "퇴원" && " · 퇴원"}
+        </div>
+      </td>
+      <td style={{ padding: "10px 12px" }}>
+        <AttToggle
+          submitted={!!r?.submitted}
+          attnAdmin={!!r?.attnAdmin}
+          attendance={r?.attendance ?? "출석"}
+          lateTime={r?.lateTime ?? ""}
+          onCycle={(p) => patch(p)}
+        />
+      </td>
+      <td style={{ padding: "10px 12px" }}>
+        {r?.submitted ? (
+          r.qNumbers ? (
+            <div
+              title={r.qNumbers}
+              style={{
+                maxWidth: 180,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                color: T.ink,
+              }}
+            >
+              {r.qNumbers}
+            </div>
+          ) : (
+            <span style={{ color: T.muted }}>질문 없음</span>
+          )
+        ) : (
+          <span style={{ color: T.muted }}>—</span>
+        )}
+      </td>
+      <td style={{ padding: "10px 12px" }}>
+        <div style={{ display: "flex", gap: 4 }}>
+          <MiniToggle
+            active={r?.hwDone === 1}
+            tone="ok"
+            onClick={() => patch({ hwDone: r?.hwDone === 1 ? null : 1 })}
+            label="O"
+          />
+          <MiniToggle
+            active={r?.hwDone === 0.5}
+            tone="warn"
+            onClick={() => patch({ hwDone: r?.hwDone === 0.5 ? null : 0.5 })}
+            label="△"
+          />
+          <MiniToggle
+            active={r?.hwDone === 0}
+            tone="bad"
+            onClick={() => patch({ hwDone: r?.hwDone === 0 ? null : 0 })}
+            label="X"
+          />
+        </div>
+      </td>
+      <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <LazyInput
+            type="number"
+            inputMode="numeric"
+            value={r?.testScore == null ? "" : String(r.testScore)}
+            placeholder="-"
+            onType={onEditing}
+            onCommit={(v) => patch({ testScore: v === "" ? null : Number(v) })}
+            style={{ ...inputBase, width: 52, padding: "6px 8px", textAlign: "center" }}
+          />
+          <span style={{ color: T.muted, fontSize: 13 }}>/</span>
+          <LazyInput
+            type="number"
+            inputMode="numeric"
+            title="이 학생 만점 (반과 다를 때만 수정)"
+            value={r?.testMaxOverride == null ? String(max) : String(r.testMaxOverride)}
+            onType={onEditing}
+            onCommit={(v) =>
+              patch({
+                testMaxOverride: v === "" || Number(v) === max ? null : Number(v),
+              })
+            }
+            style={{
+              ...inputBase,
+              width: 44,
+              padding: "6px 6px",
+              textAlign: "center",
+              color: r?.testMaxOverride != null ? T.primary : T.muted,
+              fontWeight: r?.testMaxOverride != null ? 700 : 400,
+            }}
+          />
+        </div>
+      </td>
+      <td style={{ padding: "10px 12px" }}>
+        <LazyInput
+          value={r?.solved ?? ""}
+          placeholder="해결 문제"
+          onType={onEditing}
+          onCommit={(v) => patch({ solved: v })}
+          style={{ ...inputBase, width: 120, padding: "6px 8px" }}
+        />
+      </td>
+      <td style={{ padding: "10px 12px" }}>
+        <LazyInput
+          value={r?.adminNote ?? ""}
+          placeholder="특이사항"
+          onType={onEditing}
+          onCommit={(v) => patch({ adminNote: v })}
+          style={{ ...inputBase, width: 140, padding: "6px 8px" }}
+        />
+      </td>
+      <td style={{ padding: "10px 12px" }}>
+        {r?.submitted && (
+          <Btn size="xs" variant="soft" onClick={() => onView(r)}>
+            <Eye size={14} />
+            응답
+          </Btn>
+        )}
+      </td>
+    </tr>
+  );
+});
+
 /* ============================== BOARD ============================== */
 function AdminBoard({
   students,
@@ -209,6 +364,7 @@ function AdminBoard({
   onSetAdminFields,
   onSetTestMax,
   onSetTestDetail,
+  onEditing,
 }: {
   students: Student[];
   sessions: ClinicSession[];
@@ -228,6 +384,7 @@ function AdminBoard({
     val: number | null
   ) => void;
   onSetTestDetail: (date: string, subject: string, str: string) => void;
+  onEditing: () => void;
 }) {
   const [date, setDate] = useState(() => restoreDate(clinicDates));
   const [subject, setSubject] = useState(() => restoreSubject(subjects));
@@ -300,6 +457,7 @@ function AdminBoard({
               style={inputBase}
               value={String(max)}
               placeholder="10"
+              onType={onEditing}
               onCommit={(v) =>
                 onSetTestMax(date, subject, v === "" ? null : Number(v))
               }
@@ -311,6 +469,7 @@ function AdminBoard({
               style={inputBase}
               value={detail}
               placeholder="예: 3,6,9번"
+              onType={onEditing}
               onCommit={(v) => onSetTestDetail(date, subject, v)}
             />
           </div>
@@ -378,160 +537,19 @@ function AdminBoard({
                   </td>
                 </tr>
               )}
-              {roster.map((stu) => {
-                const r = rowFor(stu);
-                const patch = (p: Record<string, any>) =>
-                  onSetAdminFields(stu.id, date, subject, p);
-                return (
-                  <tr
-                    key={stu.id}
-                    style={{ borderBottom: `1px solid ${T.line}` }}
-                  >
-                    <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
-                      <div style={{ fontWeight: 700, color: T.ink }}>
-                        {stu.name}
-                      </div>
-                      <div style={{ fontSize: 12, color: T.muted }}>
-                        {stu.grade}
-                        {stu.status === "퇴원" && " · 퇴원"}
-                      </div>
-                    </td>
-                    <td style={{ padding: "10px 12px" }}>
-                      <AttToggle
-                        submitted={!!r?.submitted}
-                        attnAdmin={!!r?.attnAdmin}
-                        attendance={r?.attendance ?? "출석"}
-                        lateTime={r?.lateTime ?? ""}
-                        onCycle={(p) => patch(p)}
-                      />
-                    </td>
-                    <td style={{ padding: "10px 12px" }}>
-                      {r?.submitted ? (
-                        r.qNumbers ? (
-                          <div
-                            title={r.qNumbers}
-                            style={{
-                              maxWidth: 180,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                              color: T.ink,
-                            }}
-                          >
-                            {r.qNumbers}
-                          </div>
-                        ) : (
-                          <span style={{ color: T.muted }}>질문 없음</span>
-                        )
-                      ) : (
-                        <span style={{ color: T.muted }}>—</span>
-                      )}
-                    </td>
-                    <td style={{ padding: "10px 12px" }}>
-                      <div style={{ display: "flex", gap: 4 }}>
-                        <MiniToggle
-                          active={r?.hwDone === 1}
-                          tone="ok"
-                          onClick={() =>
-                            patch({ hwDone: r?.hwDone === 1 ? null : 1 })
-                          }
-                          label="O"
-                        />
-                        <MiniToggle
-                          active={r?.hwDone === 0.5}
-                          tone="warn"
-                          onClick={() =>
-                            patch({ hwDone: r?.hwDone === 0.5 ? null : 0.5 })
-                          }
-                          label="△"
-                        />
-                        <MiniToggle
-                          active={r?.hwDone === 0}
-                          tone="bad"
-                          onClick={() =>
-                            patch({ hwDone: r?.hwDone === 0 ? null : 0 })
-                          }
-                          label="X"
-                        />
-                      </div>
-                    </td>
-                    <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <LazyInput
-                          type="number"
-                          inputMode="numeric"
-                          value={r?.testScore == null ? "" : String(r.testScore)}
-                          placeholder="-"
-                          onCommit={(v) =>
-                            patch({
-                              testScore: v === "" ? null : Number(v),
-                            })
-                          }
-                          style={{
-                            ...inputBase,
-                            width: 52,
-                            padding: "6px 8px",
-                            textAlign: "center",
-                          }}
-                        />
-                        <span style={{ color: T.muted, fontSize: 13 }}>/</span>
-                        <LazyInput
-                          type="number"
-                          inputMode="numeric"
-                          title="이 학생 만점 (반과 다를 때만 수정)"
-                          value={
-                            r?.testMaxOverride == null
-                              ? String(max)
-                              : String(r.testMaxOverride)
-                          }
-                          onCommit={(v) =>
-                            patch({
-                              testMaxOverride:
-                                v === "" || Number(v) === max ? null : Number(v),
-                            })
-                          }
-                          style={{
-                            ...inputBase,
-                            width: 44,
-                            padding: "6px 6px",
-                            textAlign: "center",
-                            color: r?.testMaxOverride != null ? T.primary : T.muted,
-                            fontWeight: r?.testMaxOverride != null ? 700 : 400,
-                          }}
-                        />
-                      </div>
-                    </td>
-                    <td style={{ padding: "10px 12px" }}>
-                      <LazyInput
-                        value={r?.solved ?? ""}
-                        placeholder="해결 문제"
-                        onCommit={(v) => patch({ solved: v })}
-                        style={{ ...inputBase, width: 120, padding: "6px 8px" }}
-                      />
-                    </td>
-                    <td style={{ padding: "10px 12px" }}>
-                      <LazyInput
-                        value={r?.adminNote ?? ""}
-                        placeholder="특이사항"
-                        onCommit={(v) => patch({ adminNote: v })}
-                        style={{ ...inputBase, width: 140, padding: "6px 8px" }}
-                      />
-                    </td>
-                    <td style={{ padding: "10px 12px" }}>
-                      {r?.submitted && (
-                        <Btn
-                          size="xs"
-                          variant="soft"
-                          onClick={() => setView(r)}
-                        >
-                          <Eye size={14} />
-                          응답
-                        </Btn>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+              {roster.map((stu) => (
+                <BoardRow
+                  key={stu.id}
+                  stu={stu}
+                  r={rowFor(stu)}
+                  date={date}
+                  subject={subject}
+                  max={max}
+                  onSetAdminFields={onSetAdminFields}
+                  onView={setView}
+                  onEditing={onEditing}
+                />
+              ))}
             </tbody>
           </table>
         </div>
@@ -554,6 +572,109 @@ function AdminBoard({
   );
 }
 
+/* ============================== QUICK CARD (메모) ==============================
+   빠른입력 카드도 학생별로 메모 → 한 명 저장 시 그 카드만 리렌더. */
+type QuickCardProps = {
+  stu: Student;
+  r: ClinicSession | undefined;
+  date: string;
+  subject: string;
+  max: number;
+  onSetAdminFields: (
+    studentId: string,
+    date: string,
+    subject: string,
+    patch: Record<string, any>
+  ) => void;
+  onEditing: () => void;
+};
+const QuickCard = React.memo(function QuickCard({
+  stu,
+  r,
+  date,
+  subject,
+  max,
+  onSetAdminFields,
+  onEditing,
+}: QuickCardProps) {
+  const patch = (p: Record<string, any>) => onSetAdminFields(stu.id, date, subject, p);
+  return (
+    <Card style={{ padding: 14, marginBottom: 8 }}>
+      {/* 이름 (윗줄) */}
+      <div style={{ marginBottom: 12, display: "flex", alignItems: "baseline", gap: 8 }}>
+        <span style={{ fontWeight: 700, color: T.ink, fontSize: 15.5 }}>{stu.name}</span>
+        <span style={{ fontSize: 12, color: T.muted }}>
+          {stu.grade}
+          {stu.status === "퇴원" && " · 퇴원"}
+        </span>
+      </div>
+
+      {/* 과제 · 테스트 (아랫줄) */}
+      <div style={{ display: "flex", gap: 22, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <div>
+          <div style={{ ...lbl, marginBottom: 5 }}>과제</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <MiniToggle
+              active={r?.hwDone === 1}
+              tone="ok"
+              onClick={() => patch({ hwDone: r?.hwDone === 1 ? null : 1 })}
+              label="O"
+            />
+            <MiniToggle
+              active={r?.hwDone === 0.5}
+              tone="warn"
+              onClick={() => patch({ hwDone: r?.hwDone === 0.5 ? null : 0.5 })}
+              label="△"
+            />
+            <MiniToggle
+              active={r?.hwDone === 0}
+              tone="bad"
+              onClick={() => patch({ hwDone: r?.hwDone === 0 ? null : 0 })}
+              label="X"
+            />
+          </div>
+        </div>
+
+        <div>
+          <div style={{ ...lbl, marginBottom: 5 }}>테스트</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <LazyInput
+              type="number"
+              inputMode="numeric"
+              value={r?.testScore == null ? "" : String(r.testScore)}
+              placeholder="-"
+              onType={onEditing}
+              onCommit={(v) => patch({ testScore: v === "" ? null : Number(v) })}
+              style={{ ...inputBase, width: 60, padding: "8px", textAlign: "center" }}
+            />
+            <span style={{ color: T.muted, fontSize: 14 }}>/</span>
+            <LazyInput
+              type="number"
+              inputMode="numeric"
+              title="이 학생 만점 (반과 다를 때만 수정)"
+              value={r?.testMaxOverride == null ? String(max) : String(r.testMaxOverride)}
+              onType={onEditing}
+              onCommit={(v) =>
+                patch({
+                  testMaxOverride: v === "" || Number(v) === max ? null : Number(v),
+                })
+              }
+              style={{
+                ...inputBase,
+                width: 52,
+                padding: "8px",
+                textAlign: "center",
+                color: r?.testMaxOverride != null ? T.primary : T.muted,
+                fontWeight: r?.testMaxOverride != null ? 700 : 400,
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+});
+
 /* ============================== QUICK GRADE (모바일용) ============================== */
 function AdminQuickGrade({
   students,
@@ -563,6 +684,7 @@ function AdminQuickGrade({
   subjects,
   onSetAdminFields,
   onSetTestMax,
+  onEditing,
 }: {
   students: Student[];
   sessions: ClinicSession[];
@@ -576,6 +698,7 @@ function AdminQuickGrade({
     patch: Record<string, any>
   ) => void;
   onSetTestMax: (date: string, subject: string, val: number | null) => void;
+  onEditing: () => void;
 }) {
   const [date, setDate] = useState(() => restoreDate(clinicDates));
   const [subject, setSubject] = useState(() => restoreSubject(subjects));
@@ -658,97 +781,18 @@ function AdminQuickGrade({
         </Card>
       )}
 
-      {roster.map((stu) => {
-        const r = rowFor(stu);
-        const patch = (p: Record<string, any>) => onSetAdminFields(stu.id, date, subject, p);
-        return (
-          <Card key={stu.id} style={{ padding: 14, marginBottom: 8 }}>
-            {/* 이름 (윗줄) */}
-            <div style={{ marginBottom: 12, display: "flex", alignItems: "baseline", gap: 8 }}>
-              <span style={{ fontWeight: 700, color: T.ink, fontSize: 15.5 }}>{stu.name}</span>
-              <span style={{ fontSize: 12, color: T.muted }}>
-                {stu.grade}
-                {stu.status === "퇴원" && " · 퇴원"}
-              </span>
-            </div>
-
-            {/* 과제 · 테스트 (아랫줄) */}
-            <div style={{ display: "flex", gap: 22, alignItems: "flex-end", flexWrap: "wrap" }}>
-              <div>
-                <div style={{ ...lbl, marginBottom: 5 }}>과제</div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <MiniToggle
-                    active={r?.hwDone === 1}
-                    tone="ok"
-                    onClick={() => patch({ hwDone: r?.hwDone === 1 ? null : 1 })}
-                    label="O"
-                  />
-                  <MiniToggle
-                    active={r?.hwDone === 0.5}
-                    tone="warn"
-                    onClick={() => patch({ hwDone: r?.hwDone === 0.5 ? null : 0.5 })}
-                    label="△"
-                  />
-                  <MiniToggle
-                    active={r?.hwDone === 0}
-                    tone="bad"
-                    onClick={() => patch({ hwDone: r?.hwDone === 0 ? null : 0 })}
-                    label="X"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div style={{ ...lbl, marginBottom: 5 }}>테스트</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <LazyInput
-                    type="number"
-                    inputMode="numeric"
-                    value={r?.testScore == null ? "" : String(r.testScore)}
-                    placeholder="-"
-                    onCommit={(v) =>
-                      patch({
-                        testScore: v === "" ? null : Number(v),
-                      })
-                    }
-                    style={{
-                      ...inputBase,
-                      width: 60,
-                      padding: "8px",
-                      textAlign: "center",
-                    }}
-                  />
-                  <span style={{ color: T.muted, fontSize: 14 }}>/</span>
-                  <LazyInput
-                    type="number"
-                    inputMode="numeric"
-                    title="이 학생 만점 (반과 다를 때만 수정)"
-                    value={
-                      r?.testMaxOverride == null
-                        ? String(max)
-                        : String(r.testMaxOverride)
-                    }
-                    onCommit={(v) =>
-                      patch({
-                        testMaxOverride:
-                          v === "" || Number(v) === max ? null : Number(v),
-                      })
-                    }
-                    style={{
-                      ...inputBase,
-                      width: 52,
-                      padding: "8px",
-                      textAlign: "center",
-                      color: r?.testMaxOverride != null ? T.primary : T.muted,
-                      fontWeight: r?.testMaxOverride != null ? 700 : 400,
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          </Card>
-        );
-      })}
+      {roster.map((stu) => (
+        <QuickCard
+          key={stu.id}
+          stu={stu}
+          r={rowFor(stu)}
+          date={date}
+          subject={subject}
+          max={max}
+          onSetAdminFields={onSetAdminFields}
+          onEditing={onEditing}
+        />
+      ))}
     </div>
   );
 }
@@ -1567,8 +1611,14 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
     return () => clearInterval(id);
   }, [termId]);
 
+  // 입력 중 표시(자동 새로고침 억제용). 키 입력마다 호출돼도 가볍게 ref 만 갱신.
+  const markEditing = React.useCallback(() => {
+    lastEditRef.current = Date.now();
+  }, []);
+
   // 채점 필드 입력 (낙관적 업데이트 + 서버 반영)
-  const setAdminFields = async (
+  // useCallback 으로 참조를 고정 → 메모된 행들이 불필요하게 리렌더되지 않음.
+  const setAdminFields = React.useCallback(async (
     studentId: string,
     date: string,
     subject: string,
@@ -1634,9 +1684,12 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
       });
     } catch (e: any) {
       alert(e.message || "저장에 실패했습니다.");
-      reloadSessions();
+      api
+        .get(`/api/admin/sessions?term=${termId}`)
+        .then(setSessions)
+        .catch(() => {});
     }
-  };
+  }, [termId]);
 
   const setTestMaxFor = async (
     date: string,
@@ -1826,6 +1879,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                   onSetAdminFields={setAdminFields}
                   onSetTestMax={setTestMaxFor}
                   onSetTestDetail={setTestDetailFor}
+                  onEditing={markEditing}
                 />
               )}
               {tab === "quick" && (
@@ -1838,6 +1892,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                   subjects={subjects}
                   onSetAdminFields={setAdminFields}
                   onSetTestMax={setTestMaxFor}
+                  onEditing={markEditing}
                 />
               )}
               {tab === "students" && (

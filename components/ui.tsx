@@ -499,6 +499,7 @@ export function MiniToggle({
 export function LazyInput({
   value,
   onCommit,
+  onType,
   delay = 500,
   style,
   type,
@@ -508,6 +509,7 @@ export function LazyInput({
 }: {
   value: string;
   onCommit: (v: string) => void;
+  onType?: () => void;
   delay?: number;
   style?: React.CSSProperties;
   type?: string;
@@ -564,6 +566,7 @@ export function LazyInput({
         const v = e.target.value;
         localRef.current = v;
         setLocal(v);
+        onType?.();
         if (timer.current) clearTimeout(timer.current);
         timer.current = setTimeout(() => commit(v), delay);
       }}
