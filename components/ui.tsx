@@ -492,3 +492,50 @@ export function MiniToggle({
     </button>
   );
 }
+
+/* ============================== TOAST ==============================
+   화면 하단 중앙에 잠깐 떴다 사라지는 완료 알림. toast 는 표시할 때마다
+   새 객체({id, msg})를 넣어 같은 문구도 다시 뜨게 한다. */
+export function Toast({
+  toast,
+  onClose,
+}: {
+  toast: { id: number; msg: string } | null;
+  onClose: () => void;
+}) {
+  React.useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(onClose, 2200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toast]);
+
+  if (!toast) return null;
+  return (
+    <div
+      style={{
+        position: "fixed",
+        left: "50%",
+        bottom: 28,
+        transform: "translateX(-50%)",
+        zIndex: 2000,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "12px 18px",
+        borderRadius: 999,
+        background: T.ink,
+        color: "#fff",
+        fontFamily: FONT,
+        fontSize: 14.5,
+        fontWeight: 700,
+        boxShadow: "0 8px 24px rgba(0,0,0,0.22)",
+        maxWidth: "90vw",
+      }}
+      role="status"
+    >
+      <CheckCircle2 size={18} style={{ color: T.ok, flexShrink: 0 }} />
+      {toast.msg}
+    </div>
+  );
+}

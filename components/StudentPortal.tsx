@@ -41,6 +41,7 @@ import {
   Check,
   Radio,
   inputBase,
+  Toast,
 } from "./ui";
 import { Shell, type NavItem } from "./Shell";
 
@@ -555,6 +556,8 @@ export function StudentPortal({
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
+  const showToast = (msg: string) => setToast({ id: Date.now(), msg });
 
   const reloadSessions = async () => {
     if (!term) return;
@@ -608,13 +611,15 @@ export function StudentPortal({
       qTypesEtc: v.qTypesEtc,
       request: v.request,
     };
+    const isEdit = !!(current && current.id);
     try {
-      if (current && current.id) {
+      if (isEdit) {
         await api.patch(`/api/sessions/${current.id}`, payload);
       } else {
         await api.post("/api/sessions", payload);
       }
       await reloadSessions();
+      showToast(isEdit ? "수정이 완료되었습니다" : "제출이 완료되었습니다");
     } catch (e: any) {
       alert(e.message || "저장에 실패했습니다.");
     }
@@ -624,6 +629,7 @@ export function StudentPortal({
     try {
       await api.del(`/api/sessions/${id}`);
       await reloadSessions();
+      showToast("삭제되었습니다");
     } catch (e: any) {
       alert(e.message || "삭제에 실패했습니다.");
     }
@@ -677,6 +683,7 @@ export function StudentPortal({
   );
 
   return (
+    <>
     <Shell
       role="student"
       name={me.name}
@@ -772,5 +779,7 @@ export function StudentPortal({
         </>
       )}
     </Shell>
+    <Toast toast={toast} onClose={() => setToast(null)} />
+    </>
   );
 }

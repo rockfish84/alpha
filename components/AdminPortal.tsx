@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Users,
   Inbox,
@@ -38,6 +38,38 @@ import {
   lbl,
 } from "./ui";
 import { Shell, type NavItem } from "./Shell";
+
+/* ============================== VIEW STATE 저장 ==============================
+   선택한 탭·날짜·과목을 브라우저에 저장 → 새로고침해도 보던 화면 유지. */
+const ls = {
+  get(k: string): string | null {
+    try {
+      return typeof window !== "undefined" ? window.localStorage.getItem(k) : null;
+    } catch {
+      return null;
+    }
+  },
+  set(k: string, v: string) {
+    try {
+      if (typeof window !== "undefined") window.localStorage.setItem(k, v);
+    } catch {
+      /* ignore */
+    }
+  },
+};
+const LS_TAB = "dubco:admin:tab";
+const LS_SUBJECT = "dubco:admin:subject";
+const LS_DATE = "dubco:admin:date";
+
+// 저장된 과목/날짜를 복원하되, 현재 학기에 없는 값이면 기본값으로.
+function restoreSubject(subjects: string[]): string {
+  const saved = ls.get(LS_SUBJECT);
+  return saved && subjects.includes(saved) ? saved : subjects[0];
+}
+function restoreDate(clinicDates: string[]): string {
+  const saved = ls.get(LS_DATE);
+  return saved && clinicDates.includes(saved) ? saved : pickDefaultDate(clinicDates);
+}
 
 /* ============================== ATTENDANCE TOGGLE ==============================
    출석 칸을 클릭하면 미제출 → 출석 → 지각 → 결석 → 미제출 순으로 순환.
@@ -196,10 +228,18 @@ function AdminBoard({
   ) => void;
   onSetTestDetail: (date: string, subject: string, str: string) => void;
 }) {
-  const [date, setDate] = useState(pickDefaultDate(clinicDates));
-  const [subject, setSubject] = useState(subjects[0]);
+  const [date, setDate] = useState(() => restoreDate(clinicDates));
+  const [subject, setSubject] = useState(() => restoreSubject(subjects));
   const [showAll, setShowAll] = useState(false);
   const [view, setView] = useState<ClinicSession | null>(null);
+
+  // 선택이 바뀌면 저장 (새로고침 후 복원용)
+  useEffect(() => {
+    if (subject) ls.set(LS_SUBJECT, subject);
+  }, [subject]);
+  useEffect(() => {
+    if (date) ls.set(LS_DATE, date);
+  }, [date]);
 
   const maxKey = `${date}|${subject}`;
   // 테스트 만점 기본 10 (설정이 있으면 그 값)
@@ -539,9 +579,17 @@ function AdminQuickGrade({
   ) => void;
   onSetTestMax: (date: string, subject: string, val: number | null) => void;
 }) {
-  const [date, setDate] = useState(pickDefaultDate(clinicDates));
-  const [subject, setSubject] = useState(subjects[0]);
+  const [date, setDate] = useState(() => restoreDate(clinicDates));
+  const [subject, setSubject] = useState(() => restoreSubject(subjects));
   const [showAll, setShowAll] = useState(false);
+
+  // 선택이 바뀌면 저장 (새로고침 후 복원용)
+  useEffect(() => {
+    if (subject) ls.set(LS_SUBJECT, subject);
+  }, [subject]);
+  useEffect(() => {
+    if (date) ls.set(LS_DATE, date);
+  }, [date]);
 
   const maxKey = `${date}|${subject}`;
   const max = testMax[maxKey] ?? 10;
@@ -1424,7 +1472,7 @@ function TermSettingsForm({
 }
 
 export function AdminPortal({ onLogout }: { onLogout: () => void }) {
-  const [tab, setTab] = useState("board");
+  const [tab, setTab] = useState(() => ls.get(LS_TAB) || "board");
   const [terms, setTerms] = useState<TermInfo[]>([]);
   const [termId, setTermId] = useState("");
   const [students, setStudents] = useState<Student[]>([]);
@@ -1434,10 +1482,18 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
+  // 선택한 탭 저장 (새로고침 후 복원용)
+  useEffect(() => {
+    ls.set(LS_TAB, tab);
+  }, [tab]);
+
   const term = terms.find((t) => t.id === termId);
   const subjects = term?.subjects ?? [];
   const clinicDates = term?.clinicDates ?? [];
   const tq = termId ? `?term=${termId}` : "";
+
+  // 마지막으로 관리자가 직접 입력한 시각 (자동 새로고침이 입력을 덮어쓰지 않도록)
+  const lastEditRef = useRef(0);
 
   const reloadStudents = async () =>
     setStudents(await api.get(`/api/admin/roster${tq}`));
@@ -1489,6 +1545,27 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
       .finally(() => setLoading(false));
   }, [termId]);
 
+  // 실시간 반영: 학생 제출을 주기적으로(15초) 자동 새로고침.
+  // 탭이 백그라운드거나, 방금 관리자가 입력 중이면(4초 내) 건너뛴다.
+  useEffect(() => {
+    if (!termId) return;
+    const id = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      if (Date.now() - lastEditRef.current < 4000) return;
+      api
+        .get(`/api/admin/sessions?term=${termId}`)
+        .then((se) => {
+          // 새로고침 응답이 도착하는 사이에 관리자가 입력했으면 버린다.
+          if (Date.now() - lastEditRef.current < 4000) return;
+          setSessions(se);
+        })
+        .catch(() => {
+          /* 자동 새로고침 실패는 조용히 무시 */
+        });
+    }, 15000);
+    return () => clearInterval(id);
+  }, [termId]);
+
   // 채점 필드 입력 (낙관적 업데이트 + 서버 반영)
   const setAdminFields = async (
     studentId: string,
@@ -1496,6 +1573,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
     subject: string,
     patch: Record<string, any>
   ) => {
+    lastEditRef.current = Date.now();
     setSessions((prev) => {
       const i = prev.findIndex(
         (s) => s.studentId === studentId && s.date === date && s.subject === subject
