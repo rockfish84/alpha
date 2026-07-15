@@ -494,8 +494,10 @@ export function MiniToggle({
 }
 
 /* ============================== LAZY INPUT ==============================
-   타이핑은 로컬 상태로 즉시 반영(부모 리렌더·서버요청 없음), 입력을 멈추거나
-   포커스가 빠질 때만 onCommit 으로 저장 → 모바일에서도 타자 밀림 없음. */
+   비제어형(uncontrolled) 입력. 타이핑 중에는 React 가 값에 전혀 손대지 않아
+   한글 IME 조합·마침표·띄어쓰기가 씹히지 않고, 리렌더가 나도 커서/입력이 안 끊긴다.
+   입력을 멈추거나(약 0.5초) 포커스가 빠질 때만 onCommit 으로 저장한다.
+   외부 값(서버 새로고침 등)은 입력 중이 아닐 때만 DOM 에 반영. */
 export function LazyInput({
   value,
   onCommit,
@@ -506,6 +508,8 @@ export function LazyInput({
   placeholder,
   title,
   inputMode,
+  multiline,
+  disabled,
 }: {
   value: string;
   onCommit: (v: string) => void;
@@ -516,21 +520,22 @@ export function LazyInput({
   placeholder?: string;
   title?: string;
   inputMode?: React.InputHTMLAttributes<HTMLInputElement>["inputMode"];
+  multiline?: boolean;
+  disabled?: boolean;
 }) {
-  const [local, setLocal] = React.useState(value);
-  const localRef = React.useRef(value);
+  const ref = React.useRef<HTMLInputElement & HTMLTextAreaElement>(null);
   const committedRef = React.useRef(value);
   const focused = React.useRef(false);
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const commitFnRef = React.useRef(onCommit);
   commitFnRef.current = onCommit;
 
-  // 입력 중이 아닐 때만 외부 값 반영(자동 새로고침이 타이핑을 덮어쓰지 않도록)
+  // 외부 값 변경은 입력 중이 아닐 때만 DOM 에 반영 (타이핑을 덮어쓰지 않도록)
   React.useEffect(() => {
-    if (!focused.current && value !== localRef.current) {
-      localRef.current = value;
+    const el = ref.current;
+    if (el && !focused.current && el.value !== value) {
+      el.value = value;
       committedRef.current = value;
-      setLocal(value);
     }
   }, [value]);
 
@@ -551,30 +556,32 @@ export function LazyInput({
     commitFnRef.current(v);
   };
 
-  return (
-    <input
-      type={type}
-      inputMode={inputMode}
-      placeholder={placeholder}
-      title={title}
-      style={style}
-      value={local}
-      onFocus={() => {
-        focused.current = true;
-      }}
-      onChange={(e) => {
-        const v = e.target.value;
-        localRef.current = v;
-        setLocal(v);
-        onType?.();
-        if (timer.current) clearTimeout(timer.current);
-        timer.current = setTimeout(() => commit(v), delay);
-      }}
-      onBlur={() => {
-        focused.current = false;
-        commit(localRef.current);
-      }}
-    />
+  const handlers = {
+    ref,
+    defaultValue: value,
+    placeholder,
+    title,
+    style,
+    disabled,
+    onFocus: () => {
+      focused.current = true;
+    },
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const v = e.target.value;
+      onType?.();
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => commit(v), delay);
+    },
+    onBlur: () => {
+      focused.current = false;
+      commit(ref.current?.value ?? "");
+    },
+  };
+
+  return multiline ? (
+    <textarea {...(handlers as any)} />
+  ) : (
+    <input {...(handlers as any)} type={type} inputMode={inputMode} />
   );
 }
 

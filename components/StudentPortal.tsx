@@ -28,7 +28,6 @@ import {
   pickDefaultDate,
   type ClinicSession,
   type Me,
-  type Stats,
 } from "@/lib/constants";
 import { api } from "@/lib/api";
 import {
@@ -42,6 +41,7 @@ import {
   Radio,
   inputBase,
   Toast,
+  LazyInput,
 } from "./ui";
 import { Shell, type NavItem } from "./Shell";
 
@@ -86,7 +86,7 @@ function ClinicForm({
               }
             />
             {f.attendance === "지각" && a === "지각" && (
-              <input
+              <LazyInput
                 style={{
                   ...inputBase,
                   margin: "2px 0 4px 30px",
@@ -94,11 +94,11 @@ function ClinicForm({
                 }}
                 placeholder="지각 시간 (예: 10분)"
                 value={f.lateTime}
-                onChange={(e) => set("lateTime", e.target.value)}
+                onCommit={(v) => set("lateTime", v)}
               />
             )}
             {f.attendance === "결석" && a === "결석" && (
-              <input
+              <LazyInput
                 style={{
                   ...inputBase,
                   margin: "2px 0 4px 30px",
@@ -106,7 +106,7 @@ function ClinicForm({
                 }}
                 placeholder="결석 사유"
                 value={f.absentReason}
-                onChange={(e) => set("absentReason", e.target.value)}
+                onCommit={(v) => set("absentReason", v)}
               />
             )}
           </div>
@@ -128,10 +128,10 @@ function ClinicForm({
             onChange={() => toggleArr("sources", "기타")}
             label="기타:"
           />
-          <input
+          <LazyInput
             style={{ ...inputBase, flex: 1 }}
             value={f.sourcesEtc}
-            onChange={(e) => set("sourcesEtc", e.target.value)}
+            onCommit={(v) => set("sourcesEtc", v)}
             disabled={!f.sources.includes("기타")}
             placeholder="직접 입력"
           />
@@ -144,10 +144,11 @@ function ClinicForm({
           "(최대 5개까지 기입 가능, 꼭 comma로 구분해주세요)\n(각 문제 번호 앞에 출처도 같이 적어주세요)\n(질문이 없으면 미기입하시면 됩니다)"
         }
       >
-        <textarea
+        <LazyInput
+          multiline
           style={{ ...inputBase, minHeight: 64, resize: "vertical" }}
           value={f.qNumbers}
-          onChange={(e) => set("qNumbers", e.target.value)}
+          onCommit={(v) => set("qNumbers", v)}
           placeholder="예) 쎈 20번, 교재 45번"
         />
       </Field>
@@ -167,10 +168,10 @@ function ClinicForm({
             onChange={() => toggleArr("qTypes", "기타")}
             label="기타:"
           />
-          <input
+          <LazyInput
             style={{ ...inputBase, flex: 1 }}
             value={f.qTypesEtc}
-            onChange={(e) => set("qTypesEtc", e.target.value)}
+            onCommit={(v) => set("qTypesEtc", v)}
             disabled={!f.qTypes.includes("기타")}
             placeholder="직접 입력"
           />
@@ -178,10 +179,11 @@ function ClinicForm({
       </Field>
 
       <Field label="선생님께 특별히 요청하고 싶은 사항 (예: 개념 설명, 유사 문제 추천 등)">
-        <textarea
+        <LazyInput
+          multiline
           style={{ ...inputBase, minHeight: 54, resize: "vertical" }}
           value={f.request}
-          onChange={(e) => set("request", e.target.value)}
+          onCommit={(v) => set("request", v)}
         />
       </Field>
 
@@ -359,8 +361,51 @@ function StudentHistory({
 }
 
 /* ============================== STATS ============================== */
-function StudentStats({ stats }: { stats: Stats | null }) {
-  if (!stats) return null;
+function StudentStats({
+  mine,
+  subject,
+  setSubject,
+  subjects,
+}: {
+  mine: ClinicSession[];
+  subject: string;
+  setSubject: (s: string) => void;
+  subjects: string[];
+}) {
+  // 과목별 통계 (다른 과목이 섞이지 않도록 선택 과목만 집계)
+  const stats = useMemo(() => {
+    const rows = mine.filter((x) => x.subject === subject);
+    const graded = rows.filter((x) => x.hwDone != null);
+    const hwSum = graded.reduce((a, x) => a + Number(x.hwDone), 0);
+    const testRows = rows
+      .filter((x) => x.testScore != null)
+      // 날짜 오름차순 → 나중에 본 시험이 뒤에 오도록
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((x) => {
+        const max = x.max ?? 10;
+        return {
+          date: md(x.date),
+          pct: Math.round((Number(x.testScore) / max) * 100),
+          raw: Number(x.testScore),
+          max,
+        };
+      });
+    return {
+      hwRate: graded.length ? Math.round((hwSum / graded.length) * 100) : 0,
+      hwFullCnt: graded.filter((x) => x.hwDone === 1).length,
+      hwHalfCnt: graded.filter((x) => x.hwDone === 0.5).length,
+      hwMissCnt: graded.filter((x) => x.hwDone === 0).length,
+      testRows,
+      testAvg: testRows.length
+        ? Math.round(testRows.reduce((a, r) => a + r.pct, 0) / testRows.length)
+        : 0,
+      submittedCnt: rows.filter((x) => x.submitted).length,
+      attendedCnt: rows.filter(
+        (x) => (x.submitted || x.attnAdmin) && x.attendance === "출석"
+      ).length,
+    };
+  }, [mine, subject]);
+
   const Stat = ({
     label,
     value,
@@ -409,6 +454,9 @@ function StudentStats({ stats }: { stats: Stats | null }) {
   return (
     <div>
       <SectionTitle>학습 통계</SectionTitle>
+      <div style={{ marginBottom: 14 }}>
+        <Segmented options={subjects} value={subject} onChange={setSubject} />
+      </div>
       <div
         style={{
           display: "flex",
@@ -553,7 +601,6 @@ export function StudentPortal({
   const [subject, setSubject] = useState(subjects[0] ?? "");
   const [date, setDate] = useState("");
   const [sessions, setSessions] = useState<ClinicSession[]>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
@@ -561,12 +608,7 @@ export function StudentPortal({
 
   const reloadSessions = async () => {
     if (!term) return;
-    const [s, st] = await Promise.all([
-      api.get(`/api/sessions?term=${term.id}`),
-      api.get(`/api/stats?term=${term.id}`),
-    ]);
-    setSessions(s);
-    setStats(st);
+    setSessions(await api.get(`/api/sessions?term=${term.id}`));
   };
 
   // 학기 변경 시: 과목·날짜 초기화 + 재조회
@@ -578,14 +620,9 @@ export function StudentPortal({
     setSubject(term.subjects[0] ?? "");
     setDate(pickDefaultDate(term.clinicDates));
     setLoading(true);
-    Promise.all([
-      api.get(`/api/sessions?term=${term.id}`),
-      api.get(`/api/stats?term=${term.id}`),
-    ])
-      .then(([s, st]) => {
-        setSessions(s);
-        setStats(st);
-      })
+    api
+      .get(`/api/sessions?term=${term.id}`)
+      .then((s) => setSessions(s))
       .catch((e: any) => setErr(e.message || "데이터를 불러오지 못했습니다."))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -775,7 +812,14 @@ export function StudentPortal({
               subjects={subjects}
             />
           )}
-          {tab === "stats" && <StudentStats stats={stats} />}
+          {tab === "stats" && (
+            <StudentStats
+              mine={mine}
+              subject={subject}
+              setSubject={setSubject}
+              subjects={subjects}
+            />
+          )}
         </>
       )}
     </Shell>

@@ -198,6 +198,14 @@ function ResponseDetail({ r }: { r: ClinicSession }) {
   );
 }
 
+// 점수 입력 파싱: 빈칸→null, 숫자(소수 포함)→그 값, 그 외(NaN)→undefined(무시)
+function toNum(v: string): number | null | undefined {
+  const t = v.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isNaN(n) ? undefined : n;
+}
+
 /* ============================== BOARD ROW (메모) ==============================
    각 행을 React.memo 로 분리 → 한 칸을 저장해도 그 학생 행만 다시 그린다.
    (예전엔 30명 표 전체가 매번 리렌더되어 모바일에서 타자가 밀렸음) */
@@ -292,26 +300,27 @@ const BoardRow = React.memo(function BoardRow({
       <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <LazyInput
-            type="number"
-            inputMode="numeric"
+            inputMode="decimal"
             value={r?.testScore == null ? "" : String(r.testScore)}
             placeholder="-"
             onType={onEditing}
-            onCommit={(v) => patch({ testScore: v === "" ? null : Number(v) })}
+            onCommit={(v) => {
+              const n = toNum(v);
+              if (n !== undefined) patch({ testScore: n });
+            }}
             style={{ ...inputBase, width: 52, padding: "6px 8px", textAlign: "center" }}
           />
           <span style={{ color: T.muted, fontSize: 13 }}>/</span>
           <LazyInput
-            type="number"
-            inputMode="numeric"
+            inputMode="decimal"
             title="이 학생 만점 (반과 다를 때만 수정)"
             value={r?.testMaxOverride == null ? String(max) : String(r.testMaxOverride)}
             onType={onEditing}
-            onCommit={(v) =>
-              patch({
-                testMaxOverride: v === "" || Number(v) === max ? null : Number(v),
-              })
-            }
+            onCommit={(v) => {
+              const n = toNum(v);
+              if (n !== undefined)
+                patch({ testMaxOverride: n === null || n === max ? null : n });
+            }}
             style={{
               ...inputBase,
               width: 44,
@@ -452,15 +461,15 @@ function AdminBoard({
           <div style={{ minWidth: 130 }}>
             <div style={lbl}>테스트 만점 개수 (기본 10)</div>
             <LazyInput
-              type="number"
-              inputMode="numeric"
+              inputMode="decimal"
               style={inputBase}
               value={String(max)}
               placeholder="10"
               onType={onEditing}
-              onCommit={(v) =>
-                onSetTestMax(date, subject, v === "" ? null : Number(v))
-              }
+              onCommit={(v) => {
+                const n = toNum(v);
+                if (n !== undefined) onSetTestMax(date, subject, n);
+              }}
             />
           </div>
           <div style={{ minWidth: 180, flex: 1 }}>
@@ -639,26 +648,27 @@ const QuickCard = React.memo(function QuickCard({
           <div style={{ ...lbl, marginBottom: 5 }}>테스트</div>
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <LazyInput
-              type="number"
-              inputMode="numeric"
+              inputMode="decimal"
               value={r?.testScore == null ? "" : String(r.testScore)}
               placeholder="-"
               onType={onEditing}
-              onCommit={(v) => patch({ testScore: v === "" ? null : Number(v) })}
+              onCommit={(v) => {
+                const n = toNum(v);
+                if (n !== undefined) patch({ testScore: n });
+              }}
               style={{ ...inputBase, width: 60, padding: "8px", textAlign: "center" }}
             />
             <span style={{ color: T.muted, fontSize: 14 }}>/</span>
             <LazyInput
-              type="number"
-              inputMode="numeric"
+              inputMode="decimal"
               title="이 학생 만점 (반과 다를 때만 수정)"
               value={r?.testMaxOverride == null ? String(max) : String(r.testMaxOverride)}
               onType={onEditing}
-              onCommit={(v) =>
-                patch({
-                  testMaxOverride: v === "" || Number(v) === max ? null : Number(v),
-                })
-              }
+              onCommit={(v) => {
+                const n = toNum(v);
+                if (n !== undefined)
+                  patch({ testMaxOverride: n === null || n === max ? null : n });
+              }}
               style={{
                 ...inputBase,
                 width: 52,
@@ -749,13 +759,13 @@ function AdminQuickGrade({
           <div style={{ width: 110 }}>
             <div style={lbl}>만점 (기본 10)</div>
             <LazyInput
-              type="number"
-              inputMode="numeric"
+              inputMode="decimal"
               style={inputBase}
               value={String(max)}
-              onCommit={(v) =>
-                onSetTestMax(date, subject, v === "" ? null : Number(v))
-              }
+              onCommit={(v) => {
+                const n = toNum(v);
+                if (n !== undefined) onSetTestMax(date, subject, n);
+              }}
             />
           </div>
           <label
@@ -836,6 +846,7 @@ function StudentForm({
             <input
               style={inputBase}
               type="text"
+              inputMode="numeric"
               value={f.password ?? ""}
               placeholder={isEdit ? "미입력 시 유지" : "부모 번호 등"}
               onChange={(e) => set("password", e.target.value)}
@@ -856,13 +867,14 @@ function StudentForm({
         </div>
         <div style={{ flex: 1 }}>
           <Field label="과목">
-            <input
+            <LazyInput
               style={inputBase}
               value={(f.subjects ?? []).join(", ")}
-              onChange={(e) =>
+              placeholder="쉼표로 구분 (예: 공수1, 미적분)"
+              onCommit={(v) =>
                 set(
                   "subjects",
-                  e.target.value
+                  v
                     .split(",")
                     .map((x) => x.trim())
                     .filter(Boolean)
