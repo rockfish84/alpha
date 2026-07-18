@@ -898,24 +898,32 @@ function StudentForm({
 
 function AdminStudents({
   students,
+  subjects,
   onAddStudent,
   onUpdateStudent,
   onDeleteStudent,
 }: {
   students: Student[];
+  subjects: string[];
   onAddStudent: (v: EditStudent) => void;
   onUpdateStudent: (id: string, patch: EditStudent) => void;
   onDeleteStudent: (id: string) => void;
 }) {
   const [q, setQ] = useState("");
   const [sortBy, setSortBy] = useState<"name" | "subject">("name");
+  const [subjectFilter, setSubjectFilter] = useState<string>("전체");
   const [editing, setEditing] = useState<EditStudent | null>(null);
   const list = students
-    .filter((s) => s.name.includes(q) || s.username.includes(q))
+    .filter(
+      (s) =>
+        (subjectFilter === "전체" || s.subjects.includes(subjectFilter)) &&
+        (s.name.includes(q) || s.username.includes(q))
+    )
     .sort((a, b) => {
       // 퇴원은 정렬과 무관하게 항상 맨 아래.
       if (a.status !== b.status) return a.status === "재원" ? -1 : 1;
-      if (sortBy === "subject") {
+      // 특정 과목만 보는 중이면 그냥 가나다순.
+      if (subjectFilter === "전체" && sortBy === "subject") {
         const c = a.subjects.join(", ").localeCompare(b.subjects.join(", "), "ko");
         if (c !== 0) return c;
       }
@@ -975,6 +983,40 @@ function AdminStudents({
             학생 추가
           </Btn>
         </div>
+      </div>
+
+      {/* 과목별 필터: 누르면 그 과목 학생만 가나다순 */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+        {["전체", ...subjects].map((sub) => {
+          const active = subjectFilter === sub;
+          const cnt =
+            sub === "전체"
+              ? students.filter((s) => s.status === "재원").length
+              : students.filter(
+                  (s) => s.status === "재원" && s.subjects.includes(sub)
+                ).length;
+          return (
+            <button
+              key={sub}
+              onClick={() => setSubjectFilter(sub)}
+              style={{
+                padding: "7px 14px",
+                borderRadius: 999,
+                border: `1px solid ${active ? T.primary : T.line}`,
+                background: active ? T.primarySoft : "#fff",
+                color: active ? T.primary : T.sub,
+                fontWeight: active ? 800 : 600,
+                fontSize: 13.5,
+                fontFamily: FONT,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {sub}{" "}
+              <span style={{ opacity: 0.7, fontWeight: 600 }}>{cnt}</span>
+            </button>
+          );
+        })}
       </div>
 
       <Card style={{ overflow: "hidden" }}>
@@ -1910,6 +1952,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
               {tab === "students" && (
                 <AdminStudents
                   students={students}
+                  subjects={subjects}
                   onAddStudent={addStudent}
                   onUpdateStudent={updateStudent}
                   onDeleteStudent={deleteStudent}
