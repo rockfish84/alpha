@@ -812,15 +812,31 @@ type EditStudent = Partial<Student> & { password?: string };
 
 function StudentForm({
   init,
+  subjects,
   onSubmit,
 }: {
   init: EditStudent;
+  subjects: string[];
   onSubmit: (v: EditStudent) => void;
 }) {
-  const [f, setF] = useState<EditStudent>({ ...init, password: init.password ?? "" });
+  // 과목은 학기 과목 목록에서만 선택 → 쉼표 포함 과목명("공수1,2 심화")도 정확히 선택되고
+  // 예전에 쉼표로 잘못 쪼개진 값은 목록에 없으므로 저장 시 자연히 정리된다.
+  const [f, setF] = useState<EditStudent>(() => ({
+    ...init,
+    password: init.password ?? "",
+    subjects: (init.subjects ?? []).filter((s) => subjects.includes(s)),
+  }));
   const isEdit = !!init.enrollmentId;
   const set = (k: keyof EditStudent, v: any) =>
     setF((p) => ({ ...p, [k]: v }));
+  const toggleSubject = (sub: string) =>
+    setF((p) => {
+      const cur = p.subjects ?? [];
+      return {
+        ...p,
+        subjects: cur.includes(sub) ? cur.filter((x) => x !== sub) : [...cur, sub],
+      };
+    });
   const ok = !!f.name && !!f.username && (isEdit || !!f.password);
   return (
     <div>
@@ -854,36 +870,49 @@ function StudentForm({
           </Field>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 12 }}>
-        <div style={{ flex: 1 }}>
-          <Field label="학년">
-            <input
-              style={inputBase}
-              value={f.grade ?? ""}
-              onChange={(e) => set("grade", e.target.value)}
-              placeholder="예: 고2"
-            />
-          </Field>
-        </div>
-        <div style={{ flex: 1 }}>
-          <Field label="과목">
-            <LazyInput
-              style={inputBase}
-              value={(f.subjects ?? []).join(", ")}
-              placeholder="쉼표로 구분 (예: 공수1, 미적분)"
-              onCommit={(v) =>
-                set(
-                  "subjects",
-                  v
-                    .split(",")
-                    .map((x) => x.trim())
-                    .filter(Boolean)
-                )
-              }
-            />
-          </Field>
-        </div>
-      </div>
+      <Field label="학년">
+        <input
+          style={inputBase}
+          value={f.grade ?? ""}
+          onChange={(e) => set("grade", e.target.value)}
+          placeholder="예: 고2"
+        />
+      </Field>
+      <Field label="과목 (여러 개 선택 가능)">
+        {subjects.length === 0 ? (
+          <span style={{ color: T.muted, fontSize: 13 }}>
+            학기에 등록된 과목이 없습니다. (학기 설정에서 과목을 먼저 추가하세요)
+          </span>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {subjects.map((sub) => {
+              const active = (f.subjects ?? []).includes(sub);
+              return (
+                <button
+                  key={sub}
+                  type="button"
+                  onClick={() => toggleSubject(sub)}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 999,
+                    border: `1px solid ${active ? T.primary : T.line}`,
+                    background: active ? T.primarySoft : "#fff",
+                    color: active ? T.primary : T.sub,
+                    fontWeight: active ? 800 : 600,
+                    fontSize: 13.5,
+                    fontFamily: FONT,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {active ? "✓ " : ""}
+                  {sub}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </Field>
       <Btn
         onClick={() => ok && onSubmit(f)}
         disabled={!ok}
@@ -974,7 +1003,7 @@ function AdminStudents({
                 username: "",
                 password: "",
                 grade: "",
-                subjects: ["수학"],
+                subjects: [],
                 status: "재원",
               })
             }
@@ -1143,6 +1172,7 @@ function AdminStudents({
         {editing && (
           <StudentForm
             init={editing}
+            subjects={subjects}
             onSubmit={(v) => {
               if (editing.enrollmentId) onUpdateStudent(editing.enrollmentId, v);
               else onAddStudent(v);
