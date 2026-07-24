@@ -52,7 +52,8 @@ export function serializeSession(
     qTypes: (doc.qTypes ?? []) as string[],
     qTypesEtc: (doc.qTypesEtc ?? "") as string,
     request: (doc.request ?? "") as string,
-    hwDone: (doc.hwDone ?? null) as number | null, // 1(O)/0.5(△)/0(X)/null
+    hwDone: (doc.hwDone ?? null) as number | null, // 프린트 1(O)/0.5(△)/0(X)/null
+    hwSsen: (doc.hwSsen ?? null) as number | null, // 쎈 1(O)/0.5(△)/0(X)/null
     testScore: (doc.testScore ?? null) as number | null,
     testMaxOverride: (doc.testMaxOverride ?? null) as number | null,
     testDetail: (doc.testDetail ?? "") as string,

@@ -208,6 +208,19 @@ function ClinicForm({
   );
 }
 
+/* 과제 O/△/X 아이콘 */
+function HwIcon({ v }: { v: number | null }) {
+  return v === 1 ? (
+    <CheckCircle2 size={17} color={T.ok} style={{ verticalAlign: "middle" }} />
+  ) : v === 0.5 ? (
+    <span style={{ color: T.warn, fontWeight: 800, fontSize: 16 }}>△</span>
+  ) : v === 0 ? (
+    <XCircle size={17} color={T.bad} style={{ verticalAlign: "middle" }} />
+  ) : (
+    <span style={{ color: T.muted }}>—</span>
+  );
+}
+
 /* ============================== HISTORY ============================== */
 function StudentHistory({
   mine,
@@ -245,7 +258,7 @@ function StudentHistory({
           >
             <thead>
               <tr style={{ background: "#F6F8FB" }}>
-                {["날짜", "질문 문제", "해결 문제", "과제", "테스트"].map(
+                {["날짜", "질문 문제", "해결 문제", "프린트", "쎈", "테스트"].map(
                   (h, i) => (
                     <th
                       key={h}
@@ -268,7 +281,7 @@ function StudentHistory({
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={5}>
+                  <td colSpan={6}>
                     <Empty
                       icon={<History size={28} />}
                       text="클리닉 기록이 없습니다"
@@ -310,25 +323,10 @@ function StudentHistory({
                     {r.solved || <span style={{ color: T.muted }}>—</span>}
                   </td>
                   <td style={{ padding: "12px 14px", textAlign: "center" }}>
-                    {r.hwDone === 1 ? (
-                      <CheckCircle2
-                        size={17}
-                        color={T.ok}
-                        style={{ verticalAlign: "middle" }}
-                      />
-                    ) : r.hwDone === 0.5 ? (
-                      <span style={{ color: T.warn, fontWeight: 800, fontSize: 16 }}>
-                        △
-                      </span>
-                    ) : r.hwDone === 0 ? (
-                      <XCircle
-                        size={17}
-                        color={T.bad}
-                        style={{ verticalAlign: "middle" }}
-                      />
-                    ) : (
-                      <span style={{ color: T.muted }}>—</span>
-                    )}
+                    <HwIcon v={r.hwDone} />
+                  </td>
+                  <td style={{ padding: "12px 14px", textAlign: "center" }}>
+                    <HwIcon v={r.hwSsen} />
                   </td>
                   <td
                     style={{
@@ -375,8 +373,11 @@ function StudentStats({
   // 과목별 통계 (다른 과목이 섞이지 않도록 선택 과목만 집계)
   const stats = useMemo(() => {
     const rows = mine.filter((x) => x.subject === subject);
-    const graded = rows.filter((x) => x.hwDone != null);
-    const hwSum = graded.reduce((a, x) => a + Number(x.hwDone), 0);
+    // 과제는 프린트+쎈 둘 다 합산
+    const hwVals = rows
+      .flatMap((x) => [x.hwDone, x.hwSsen])
+      .filter((v): v is number => v != null);
+    const hwSum = hwVals.reduce((a, v) => a + v, 0);
     const testRows = rows
       .filter((x) => x.testScore != null)
       // 날짜 오름차순 → 나중에 본 시험이 뒤에 오도록
@@ -391,10 +392,10 @@ function StudentStats({
         };
       });
     return {
-      hwRate: graded.length ? Math.round((hwSum / graded.length) * 100) : 0,
-      hwFullCnt: graded.filter((x) => x.hwDone === 1).length,
-      hwHalfCnt: graded.filter((x) => x.hwDone === 0.5).length,
-      hwMissCnt: graded.filter((x) => x.hwDone === 0).length,
+      hwRate: hwVals.length ? Math.round((hwSum / hwVals.length) * 100) : 0,
+      hwFullCnt: hwVals.filter((v) => v === 1).length,
+      hwHalfCnt: hwVals.filter((v) => v === 0.5).length,
+      hwMissCnt: hwVals.filter((v) => v === 0).length,
       testRows,
       testAvg: testRows.length
         ? Math.round(testRows.reduce((a, r) => a + r.pct, 0) / testRows.length)

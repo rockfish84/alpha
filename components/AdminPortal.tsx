@@ -12,6 +12,7 @@ import {
   Save,
   Search,
   Eye,
+  MessageSquare,
 } from "lucide-react";
 import {
   T,
@@ -206,6 +207,248 @@ function toNum(v: string): number | null | undefined {
   return Number.isNaN(n) ? undefined : n;
 }
 
+// 과제 O/△/X 토글 묶음 (같은 값 다시 누르면 해제)
+function HwToggles({
+  value,
+  onSet,
+}: {
+  value: number | null | undefined;
+  onSet: (v: number | null) => void;
+}) {
+  return (
+    <div style={{ display: "flex", gap: 4 }}>
+      <MiniToggle active={value === 1} tone="ok" onClick={() => onSet(value === 1 ? null : 1)} label="O" />
+      <MiniToggle active={value === 0.5} tone="warn" onClick={() => onSet(value === 0.5 ? null : 0.5)} label="△" />
+      <MiniToggle active={value === 0} tone="bad" onClick={() => onSet(value === 0 ? null : 0)} label="X" />
+    </div>
+  );
+}
+
+/* ============================== 성적 문자 발송 ============================== */
+const phoneOk = (v: string) => /^01[016789][0-9]{7,8}$/.test((v || "").replace(/[^0-9]/g, ""));
+const hwLabel = (h: number | null | undefined) =>
+  h === 1 ? "완료(O)" : h === 0.5 ? "부분(△)" : h === 0 ? "미수행(X)" : "미입력";
+
+function buildSmsText(
+  name: string,
+  dateIso: string,
+  r: ClinicSession | undefined,
+  max: number
+) {
+  const test = r?.testScore != null ? `${r.testScore}/${r?.testMaxOverride ?? max}` : "미응시";
+  return `[더브코 알파 클리닉]\n${name} 학생 · ${md(dateIso)}\n· 과제(프린트): ${hwLabel(r?.hwDone)}\n· 과제(쎈): ${hwLabel(r?.hwSsen)}\n· 테스트: ${test}`;
+}
+
+function NotifyModal({
+  open,
+  onClose,
+  rows,
+  dateIso,
+  subject,
+  max,
+}: {
+  open: boolean;
+  onClose: () => void;
+  rows: { student: Student; r: ClinicSession | undefined }[];
+  dateIso: string;
+  subject: string;
+  max: number;
+}) {
+  const [testMode, setTestMode] = useState(true); // 기본: 테스트(내 번호)로 안전하게
+  const [testNumber, setTestNumber] = useState("");
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState("");
+  const [lockTo, setLockTo] = useState<string | null>(null); // 서버가 강제하는 테스트 번호
+
+  // 열릴 때 서버 안전장치(SMS_TEST_TO) 여부 확인
+  useEffect(() => {
+    if (!open) return;
+    setResult("");
+    api
+      .get("/api/admin/notify")
+      .then((d) => setLockTo(d?.testTo ?? null))
+      .catch(() => setLockTo(null));
+  }, [open]);
+
+  const items = rows.map(({ student, r }) => ({
+    id: student.id,
+    name: student.name,
+    num: student.password ?? "",
+    valid: phoneOk(student.password ?? ""),
+    text: buildSmsText(student.name, dateIso, r, max),
+  }));
+  // 표에서 이미 체크한 학생들 = rows. 테스트 모드가 아니면 번호 유효한 학생만 실제 발송.
+  const included = items.filter((it) => testMode || it.valid);
+
+  const send = async () => {
+    setResult("");
+    if (testMode && !phoneOk(testNumber)) {
+      setResult("테스트로 받을 번호를 올바르게 입력하세요.");
+      return;
+    }
+    const msgs = included.map((it) => ({
+      to: testMode ? testNumber : it.num,
+      text: it.text,
+    }));
+    if (msgs.length === 0) {
+      setResult("보낼 대상이 없습니다.");
+      return;
+    }
+    if (
+      !confirm(
+        `${msgs.length}명에게 ${testMode ? "(테스트) 내 번호로 " : ""}문자를 보낼까요?`
+      )
+    )
+      return;
+    setSending(true);
+    try {
+      const res = await api.post("/api/admin/notify", { messages: msgs });
+      setResult(
+        `✅ 발송 완료 · 성공 ${res.sent}건 / 실패 ${res.failed}건` +
+          (res.redirectedTo ? ` (안전모드: ${res.redirectedTo} 로 전송)` : "")
+      );
+    } catch (e: any) {
+      setResult(`⚠️ ${e.message || "발송 실패"}`);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`성적 문자 발송 · ${md(dateIso)} ${subject}`}
+      width={620}
+    >
+      {lockTo && (
+        <div
+          style={{
+            background: T.warnSoft,
+            color: T.warn,
+            border: `1px solid ${T.warn}`,
+            borderRadius: 10,
+            padding: "10px 12px",
+            fontSize: 13,
+            fontWeight: 700,
+            marginBottom: 12,
+          }}
+        >
+          🔒 안전 모드: 지금은 부모님이 아니라 <b>{lockTo}</b> 번호로만 발송됩니다.
+          <div style={{ fontWeight: 500, marginTop: 3 }}>
+            (실전 발송하려면 .env 의 SMS_TEST_TO 를 지우고 서버 재시작)
+          </div>
+        </div>
+      )}
+      <label
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          fontSize: 14,
+          fontWeight: 700,
+          color: T.ink,
+          marginBottom: 10,
+          cursor: "pointer",
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={testMode}
+          onChange={(e) => setTestMode(e.target.checked)}
+        />
+        테스트 발송 (부모님 대신 아래 내 번호로 전부 보내기)
+      </label>
+      {testMode && (
+        <input
+          style={{ ...inputBase, marginBottom: 12 }}
+          inputMode="numeric"
+          placeholder="테스트로 받을 내 번호 (예: 01012345678)"
+          value={testNumber}
+          onChange={(e) => setTestNumber(e.target.value)}
+        />
+      )}
+
+      <div style={{ fontSize: 13, color: T.sub, marginBottom: 8 }}>
+        보낼 대상 {included.length}명
+        {!testMode && ` · 번호 없는 학생은 자동 제외`}
+      </div>
+
+      <div
+        style={{
+          maxHeight: 320,
+          overflowY: "auto",
+          border: `1px solid ${T.line}`,
+          borderRadius: 12,
+        }}
+      >
+        {items.map((it, i) => {
+          const on = testMode || it.valid; // 실제로 발송될지
+          return (
+            <div
+              key={it.id}
+              style={{
+                display: "flex",
+                gap: 10,
+                padding: "10px 12px",
+                borderBottom: i < items.length - 1 ? `1px solid ${T.line}` : "none",
+                opacity: on ? 1 : 0.5,
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, color: T.ink, fontSize: 14 }}>
+                  {it.name}{" "}
+                  <span
+                    style={{
+                      fontWeight: 600,
+                      fontSize: 12.5,
+                      color: it.valid ? T.muted : T.bad,
+                    }}
+                  >
+                    {it.valid ? it.num : "번호 없음/형식 오류 (미발송)"}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontSize: 12.5,
+                    color: T.sub,
+                    whiteSpace: "pre-wrap",
+                    marginTop: 3,
+                  }}
+                >
+                  {it.text}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {result && (
+        <div
+          style={{
+            marginTop: 12,
+            fontSize: 13.5,
+            fontWeight: 700,
+            color: result.startsWith("✅") ? T.ok : T.bad,
+          }}
+        >
+          {result}
+        </div>
+      )}
+
+      <Btn
+        onClick={send}
+        disabled={sending}
+        style={{ width: "100%", justifyContent: "center", marginTop: 14 }}
+      >
+        <MessageSquare size={16} />
+        {sending ? "발송 중…" : testMode ? "테스트 발송" : "부모님께 발송"}
+      </Btn>
+    </Modal>
+  );
+}
+
 /* ============================== BOARD ROW (메모) ==============================
    각 행을 React.memo 로 분리 → 한 칸을 저장해도 그 학생 행만 다시 그린다.
    (예전엔 30명 표 전체가 매번 리렌더되어 모바일에서 타자가 밀렸음) */
@@ -223,6 +466,8 @@ type BoardRowProps = {
   ) => void;
   onView: (r: ClinicSession) => void;
   onEditing: () => void;
+  checked: boolean;
+  onToggleSelect: (id: string) => void;
 };
 const BoardRow = React.memo(function BoardRow({
   stu,
@@ -233,6 +478,8 @@ const BoardRow = React.memo(function BoardRow({
   onSetAdminFields,
   onView,
   onEditing,
+  checked,
+  onToggleSelect,
 }: BoardRowProps) {
   const patch = (p: Record<string, any>) => onSetAdminFields(stu.id, date, subject, p);
   return (
@@ -276,26 +523,10 @@ const BoardRow = React.memo(function BoardRow({
         )}
       </td>
       <td style={{ padding: "10px 12px" }}>
-        <div style={{ display: "flex", gap: 4 }}>
-          <MiniToggle
-            active={r?.hwDone === 1}
-            tone="ok"
-            onClick={() => patch({ hwDone: r?.hwDone === 1 ? null : 1 })}
-            label="O"
-          />
-          <MiniToggle
-            active={r?.hwDone === 0.5}
-            tone="warn"
-            onClick={() => patch({ hwDone: r?.hwDone === 0.5 ? null : 0.5 })}
-            label="△"
-          />
-          <MiniToggle
-            active={r?.hwDone === 0}
-            tone="bad"
-            onClick={() => patch({ hwDone: r?.hwDone === 0 ? null : 0 })}
-            label="X"
-          />
-        </div>
+        <HwToggles value={r?.hwDone} onSet={(v) => patch({ hwDone: v })} />
+      </td>
+      <td style={{ padding: "10px 12px" }}>
+        <HwToggles value={r?.hwSsen} onSet={(v) => patch({ hwSsen: v })} />
       </td>
       <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -358,6 +589,15 @@ const BoardRow = React.memo(function BoardRow({
           </Btn>
         )}
       </td>
+      <td style={{ padding: "10px 12px", textAlign: "center" }}>
+        <input
+          type="checkbox"
+          title="문자 발송 대상"
+          checked={checked}
+          onChange={() => onToggleSelect(stu.id)}
+          style={{ width: 18, height: 18, cursor: "pointer" }}
+        />
+      </td>
     </tr>
   );
 });
@@ -399,6 +639,16 @@ function AdminBoard({
   const [subject, setSubject] = useState(() => restoreSubject(subjects));
   const [showAll, setShowAll] = useState(false);
   const [view, setView] = useState<ClinicSession | null>(null);
+  const [notify, setNotify] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set()); // 문자 발송 체크
+
+  const toggleSelect = React.useCallback((id: string) => {
+    setSelected((p) => {
+      const n = new Set(p);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  }, []);
 
   // 선택이 바뀌면 저장 (새로고침 후 복원용)
   useEffect(() => {
@@ -407,6 +657,10 @@ function AdminBoard({
   useEffect(() => {
     if (date) ls.set(LS_DATE, date);
   }, [date]);
+  // 날짜/과목이 바뀌면 발송 체크 초기화
+  useEffect(() => {
+    setSelected(new Set());
+  }, [date, subject]);
 
   const maxKey = `${date}|${subject}`;
   // 테스트 만점 기본 10 (설정이 있으면 그 값)
@@ -503,6 +757,30 @@ function AdminBoard({
         </div>
       </Card>
 
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          alignItems: "center",
+          gap: 10,
+          marginBottom: 10,
+        }}
+      >
+        {selected.size > 0 && (
+          <span style={{ fontSize: 13, color: T.sub, fontWeight: 600 }}>
+            {selected.size}명 선택됨
+          </span>
+        )}
+        <Btn
+          variant="soft"
+          onClick={() => setNotify(true)}
+          disabled={selected.size === 0}
+        >
+          <MessageSquare size={16} />
+          성적 문자 발송{selected.size > 0 ? ` (${selected.size})` : ""}
+        </Btn>
+      </div>
+
       <Card style={{ overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
           <table
@@ -510,12 +788,12 @@ function AdminBoard({
               width: "100%",
               borderCollapse: "collapse",
               fontSize: 14,
-              minWidth: 960,
+              minWidth: 1040,
             }}
           >
             <thead>
               <tr style={{ background: "#F6F8FB" }}>
-                {["학생", "출석", "질문 문제", "과제", "테스트", "해결 문제", "비고", ""].map(
+                {["학생", "출석", "질문 문제", "프린트", "쎈", "테스트", "해결 문제", "비고", ""].map(
                   (h, i) => (
                     <th
                       key={i}
@@ -533,12 +811,38 @@ function AdminBoard({
                     </th>
                   )
                 )}
+                <th
+                  style={{
+                    textAlign: "center",
+                    padding: "11px 12px",
+                    fontSize: 12.5,
+                    fontWeight: 800,
+                    color: T.sub,
+                    borderBottom: `1px solid ${T.line}`,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                    문자
+                    <input
+                      type="checkbox"
+                      title="전체 선택/해제"
+                      checked={roster.length > 0 && roster.every((s) => selected.has(s.id))}
+                      onChange={(e) =>
+                        setSelected(
+                          e.target.checked ? new Set(roster.map((s) => s.id)) : new Set()
+                        )
+                      }
+                      style={{ width: 16, height: 16, cursor: "pointer" }}
+                    />
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody>
               {roster.length === 0 && (
                 <tr>
-                  <td colSpan={8}>
+                  <td colSpan={10}>
                     <Empty
                       icon={<Users size={28} />}
                       text="해당 과목 학생이 없습니다"
@@ -557,6 +861,8 @@ function AdminBoard({
                   onSetAdminFields={onSetAdminFields}
                   onView={setView}
                   onEditing={onEditing}
+                  checked={selected.has(stu.id)}
+                  onToggleSelect={toggleSelect}
                 />
               ))}
             </tbody>
@@ -577,6 +883,17 @@ function AdminBoard({
       >
         {view && <ResponseDetail r={view} />}
       </Modal>
+
+      <NotifyModal
+        open={notify}
+        onClose={() => setNotify(false)}
+        rows={roster
+          .filter((stu) => selected.has(stu.id))
+          .map((stu) => ({ student: stu, r: rowFor(stu) }))}
+        dateIso={date}
+        subject={subject}
+        max={max}
+      />
     </div>
   );
 }
@@ -621,27 +938,13 @@ const QuickCard = React.memo(function QuickCard({
       {/* 과제 · 테스트 (아랫줄) */}
       <div style={{ display: "flex", gap: 22, alignItems: "flex-end", flexWrap: "wrap" }}>
         <div>
-          <div style={{ ...lbl, marginBottom: 5 }}>과제</div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <MiniToggle
-              active={r?.hwDone === 1}
-              tone="ok"
-              onClick={() => patch({ hwDone: r?.hwDone === 1 ? null : 1 })}
-              label="O"
-            />
-            <MiniToggle
-              active={r?.hwDone === 0.5}
-              tone="warn"
-              onClick={() => patch({ hwDone: r?.hwDone === 0.5 ? null : 0.5 })}
-              label="△"
-            />
-            <MiniToggle
-              active={r?.hwDone === 0}
-              tone="bad"
-              onClick={() => patch({ hwDone: r?.hwDone === 0 ? null : 0 })}
-              label="X"
-            />
-          </div>
+          <div style={{ ...lbl, marginBottom: 5 }}>과제(프린트)</div>
+          <HwToggles value={r?.hwDone} onSet={(v) => patch({ hwDone: v })} />
+        </div>
+
+        <div>
+          <div style={{ ...lbl, marginBottom: 5 }}>과제(쎈)</div>
+          <HwToggles value={r?.hwSsen} onSet={(v) => patch({ hwSsen: v })} />
         </div>
 
         <div>
@@ -1737,6 +2040,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
           qTypesEtc: "",
           request: "",
           hwDone: null,
+          hwSsen: null,
           testScore: null,
           testMaxOverride: null,
           testDetail: "",

@@ -48,6 +48,7 @@ export async function PATCH(req: Request) {
   if ("lateTime" in patch) set.lateTime = patch.lateTime ?? "";
   if ("absentReason" in patch) set.absentReason = patch.absentReason ?? "";
   if ("hwDone" in patch) set.hwDone = patch.hwDone;
+  if ("hwSsen" in patch) set.hwSsen = patch.hwSsen;
   if ("testScore" in patch) set.testScore = patch.testScore;
   if ("testMaxOverride" in patch) set.testMaxOverride = patch.testMaxOverride;
   if ("testDetail" in patch) set.testDetail = patch.testDetail ?? "";

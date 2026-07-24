@@ -66,7 +66,8 @@ const SessionSchema = new Schema(
     request: { type: String, default: "" },
 
     // 관리자 입력
-    hwDone: { type: Number, default: null }, // 1(O)/0.5(△)/0(X)/null
+    hwDone: { type: Number, default: null }, // 과제(프린트) 1(O)/0.5(△)/0(X)/null
+    hwSsen: { type: Number, default: null }, // 과제(쎈) 1(O)/0.5(△)/0(X)/null
     testScore: { type: Number, default: null },
     testMaxOverride: { type: Number, default: null },
     testDetail: { type: String, default: "" },

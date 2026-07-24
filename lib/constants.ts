@@ -110,7 +110,8 @@ export interface ClinicSession {
   qTypes: string[];
   qTypesEtc: string;
   request: string;
-  hwDone: number | null; // 1(O) / 0.5(△) / 0(X) / null(미입력)
+  hwDone: number | null; // 과제(프린트) 1(O) / 0.5(△) / 0(X) / null(미입력)
+  hwSsen: number | null; // 과제(쎈) 1(O) / 0.5(△) / 0(X) / null(미입력)
   testScore: number | null;
   testMaxOverride: number | null; // 이 학생만 다른 만점 (없으면 반 기본값)
   testDetail: string; // 테스트 문항 (예: 3,6,9번)
@@ -160,6 +161,7 @@ export function blankSession(
     qTypesEtc: "",
     request: "",
     hwDone: null,
+    hwSsen: null,
     testScore: null,
     testMaxOverride: null,
     testDetail: "",
