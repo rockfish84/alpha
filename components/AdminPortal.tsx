@@ -226,9 +226,94 @@ function HwToggles({
 }
 
 /* ============================== 성적 문자 발송 ============================== */
-const phoneOk = (v: string) => /^01[016789][0-9]{7,8}$/.test((v || "").replace(/[^0-9]/g, ""));
+const digits = (v: string) => (v || "").replace(/[^0-9]/g, "");
+const phoneOk = (v: string) => /^01[016789][0-9]{7,8}$/.test(digits(v));
 const hwLabel = (h: number | null | undefined) =>
   h === 1 ? "완료(O)" : h === 0.5 ? "부분(△)" : h === 0 ? "미수행(X)" : "미입력";
+
+type SendSummary = {
+  sent: number;
+  failed: number;
+  failedList: { to: string; reason: string }[];
+  redirectedTo?: string;
+};
+
+// N명씩 나눠서 순차 발송 (버스트 완화). 한 묶음이 실패해도 나머지는 계속.
+async function sendBatched(
+  msgs: { to: string; text: string }[],
+  batchSize: number,
+  onProgress?: (done: number, total: number) => void
+): Promise<SendSummary> {
+  const size = Math.max(1, batchSize);
+  let sent = 0;
+  let failed = 0;
+  const failedList: { to: string; reason: string }[] = [];
+  let redirectedTo: string | undefined;
+  for (let i = 0; i < msgs.length; i += size) {
+    const chunk = msgs.slice(i, i + size);
+    try {
+      const res = await api.post("/api/admin/notify", { messages: chunk });
+      sent += res.sent ?? 0;
+      failed += res.failed ?? 0;
+      if (Array.isArray(res.failedList)) failedList.push(...res.failedList);
+      if (res.redirectedTo) redirectedTo = res.redirectedTo;
+    } catch (e: any) {
+      failed += chunk.length;
+      chunk.forEach((m) =>
+        failedList.push({ to: m.to, reason: e?.message || "요청 실패" })
+      );
+    }
+    onProgress?.(Math.min(i + size, msgs.length), msgs.length);
+  }
+  return { sent, failed, failedList, redirectedTo };
+}
+
+// 발송 결과(성공/실패 + 실패 학생·사유) 표시
+function SendResultView({
+  result,
+  nameByNum,
+}: {
+  result: SendSummary | null;
+  nameByNum: Record<string, string>;
+}) {
+  if (!result) return null;
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        border: `1px solid ${T.line}`,
+        borderRadius: 10,
+        padding: "10px 12px",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 13.5,
+          fontWeight: 800,
+          color: result.failed ? T.warn : T.ok,
+        }}
+      >
+        {result.failed ? "⚠️" : "✅"} 발송 결과 · 성공 {result.sent}건 / 실패{" "}
+        {result.failed}건
+        {result.redirectedTo ? ` (안전모드: ${result.redirectedTo} 로 전송)` : ""}
+      </div>
+      {result.failed > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 12.5, color: T.sub, marginBottom: 4, fontWeight: 700 }}>
+            실패 명단 (사유):
+          </div>
+          <div style={{ maxHeight: 160, overflowY: "auto" }}>
+            {result.failedList.map((f, i) => (
+              <div key={i} style={{ fontSize: 13, color: T.bad, padding: "2px 0" }}>
+                · {nameByNum[digits(f.to)] ?? f.to} — {f.reason}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function buildSmsText(
   name: string,
@@ -258,13 +343,15 @@ function NotifyModal({
   const [testMode, setTestMode] = useState(true); // 기본: 테스트(내 번호)로 안전하게
   const [testNumber, setTestNumber] = useState("");
   const [sending, setSending] = useState(false);
-  const [result, setResult] = useState("");
+  const [note, setNote] = useState("");
+  const [summary, setSummary] = useState<SendSummary | null>(null);
   const [lockTo, setLockTo] = useState<string | null>(null); // 서버가 강제하는 테스트 번호
 
   // 열릴 때 서버 안전장치(SMS_TEST_TO) 여부 확인
   useEffect(() => {
     if (!open) return;
-    setResult("");
+    setNote("");
+    setSummary(null);
     api
       .get("/api/admin/notify")
       .then((d) => setLockTo(d?.testTo ?? null))
@@ -280,11 +367,15 @@ function NotifyModal({
   }));
   // 표에서 이미 체크한 학생들 = rows. 테스트 모드가 아니면 번호 유효한 학생만 실제 발송.
   const included = items.filter((it) => testMode || it.valid);
+  const nameByNum = testMode
+    ? {}
+    : Object.fromEntries(included.map((it) => [digits(it.num), it.name]));
 
   const send = async () => {
-    setResult("");
+    setNote("");
+    setSummary(null);
     if (testMode && !phoneOk(testNumber)) {
-      setResult("테스트로 받을 번호를 올바르게 입력하세요.");
+      setNote("테스트로 받을 번호를 올바르게 입력하세요.");
       return;
     }
     const msgs = included.map((it) => ({
@@ -292,7 +383,7 @@ function NotifyModal({
       text: it.text,
     }));
     if (msgs.length === 0) {
-      setResult("보낼 대상이 없습니다.");
+      setNote("보낼 대상이 없습니다.");
       return;
     }
     if (
@@ -302,14 +393,15 @@ function NotifyModal({
     )
       return;
     setSending(true);
+    setNote(`발송 중… 0/${msgs.length}`);
     try {
-      const res = await api.post("/api/admin/notify", { messages: msgs });
-      setResult(
-        `✅ 발송 완료 · 성공 ${res.sent}건 / 실패 ${res.failed}건` +
-          (res.redirectedTo ? ` (안전모드: ${res.redirectedTo} 로 전송)` : "")
+      const res = await sendBatched(msgs, 30, (done, total) =>
+        setNote(`발송 중… ${done}/${total}`)
       );
+      setSummary(res);
+      setNote("");
     } catch (e: any) {
-      setResult(`⚠️ ${e.message || "발송 실패"}`);
+      setNote(`⚠️ ${e.message || "발송 실패"}`);
     } finally {
       setSending(false);
     }
@@ -425,18 +517,12 @@ function NotifyModal({
         })}
       </div>
 
-      {result && (
-        <div
-          style={{
-            marginTop: 12,
-            fontSize: 13.5,
-            fontWeight: 700,
-            color: result.startsWith("✅") ? T.ok : T.bad,
-          }}
-        >
-          {result}
+      {note && (
+        <div style={{ marginTop: 12, fontSize: 13.5, fontWeight: 700, color: T.sub }}>
+          {note}
         </div>
       )}
+      <SendResultView result={summary} nameByNum={nameByNum} />
 
       <Btn
         onClick={send}
@@ -1714,8 +1800,10 @@ function AdminWeekly({
   const [testMode, setTestMode] = useState(true);
   const [testNumber, setTestNumber] = useState("");
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const [batchSize, setBatchSize] = useState(30);
   const [sending, setSending] = useState(false);
-  const [result, setResult] = useState("");
+  const [note, setNote] = useState(""); // 검증 메시지·진행 상황
+  const [summary, setSummary] = useState<SendSummary | null>(null);
   const [lockTo, setLockTo] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1752,10 +1840,15 @@ function AdminWeekly({
       return n;
     });
 
+  const nameByNum = testMode
+    ? {}
+    : Object.fromEntries(included.map((it) => [digits(it.num), it.name]));
+
   const send = async () => {
-    setResult("");
+    setNote("");
+    setSummary(null);
     if (testMode && !phoneOk(testNumber)) {
-      setResult("테스트로 받을 번호를 올바르게 입력하세요.");
+      setNote("테스트로 받을 번호를 올바르게 입력하세요.");
       return;
     }
     const msgs = included.map((it) => ({
@@ -1763,24 +1856,25 @@ function AdminWeekly({
       text: it.text,
     }));
     if (msgs.length === 0) {
-      setResult("보낼 대상이 없습니다.");
+      setNote("보낼 대상이 없습니다.");
       return;
     }
     if (
       !confirm(
-        `${msgs.length}명에게 ${testMode ? "(테스트) 내 번호로 " : ""}문자를 보낼까요?`
+        `${msgs.length}명에게 ${testMode ? "(테스트) 내 번호로 " : ""}${batchSize}명씩 나눠 보낼까요?`
       )
     )
       return;
     setSending(true);
+    setNote(`발송 중… 0/${msgs.length}`);
     try {
-      const res = await api.post("/api/admin/notify", { messages: msgs });
-      setResult(
-        `✅ 발송 완료 · 성공 ${res.sent}건 / 실패 ${res.failed}건` +
-          (res.redirectedTo ? ` (안전모드: ${res.redirectedTo} 로 전송)` : "")
+      const res = await sendBatched(msgs, batchSize, (done, total) =>
+        setNote(`발송 중… ${done}/${total}`)
       );
+      setSummary(res);
+      setNote("");
     } catch (e: any) {
-      setResult(`⚠️ ${e.message || "발송 실패"}`);
+      setNote(`⚠️ ${e.message || "발송 실패"}`);
     } finally {
       setSending(false);
     }
@@ -1865,13 +1959,28 @@ function AdminWeekly({
         </label>
         {testMode && (
           <input
-            style={{ ...inputBase, marginBottom: 4 }}
+            style={{ ...inputBase, marginBottom: 10 }}
             inputMode="numeric"
             placeholder="테스트로 받을 내 번호 (예: 01012345678)"
             value={testNumber}
             onChange={(e) => setTestNumber(e.target.value)}
           />
         )}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 13, color: T.sub, fontWeight: 600 }}>
+            한 번에 보낼 인원 (나눠 보내기)
+          </span>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={batchSize}
+            onChange={(e) => setBatchSize(Math.max(1, Number(e.target.value) || 1))}
+            style={{ ...inputBase, width: 80, textAlign: "center" }}
+          />
+          <span style={{ fontSize: 12, color: T.muted }}>
+            명씩 순차 발송 (대량 스팸차단 완화용, 기본 30)
+          </span>
+        </div>
       </Card>
 
       <div
@@ -1922,20 +2031,14 @@ function AdminWeekly({
         </Btn>
       </div>
 
-      {result && (
-        <div
-          style={{
-            marginBottom: 12,
-            fontSize: 13.5,
-            fontWeight: 700,
-            color: result.startsWith("✅") ? T.ok : T.bad,
-          }}
-        >
-          {result}
+      {note && (
+        <div style={{ marginBottom: 8, fontSize: 13.5, fontWeight: 700, color: T.sub }}>
+          {note}
         </div>
       )}
+      <SendResultView result={summary} nameByNum={nameByNum} />
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
         {selDates.length > 0 && items.length === 0 && (
           <Card style={{ padding: 8 }}>
             <Empty icon={<Inbox size={28} />} text="선택한 날짜에 보낼 내용이 있는 학생이 없습니다" />
