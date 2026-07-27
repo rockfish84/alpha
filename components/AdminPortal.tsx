@@ -13,6 +13,7 @@ import {
   Search,
   Eye,
   MessageSquare,
+  Send,
 } from "lucide-react";
 import {
   T,
@@ -1637,6 +1638,356 @@ function AdminResponses({
   );
 }
 
+/* ============================== 주간 성적 안내 문자 ============================== */
+// 과제 진행률 매핑: X(0)→0%, △(0.5)→70%, O(1)→100%
+function hwPct(v: number): number {
+  return v === 1 ? 100 : v === 0.5 ? 70 : 0;
+}
+
+type WeekBlock = {
+  dateIso: string;
+  subject: string;
+  hasTest: boolean;
+  testPct: number;
+  hwDone: number | null;
+  hwSsen: number | null;
+};
+
+// 한 학생의 (선택 날짜 × 수강 과목) 블록을 조건에 맞게 생성.
+function buildStudentBlocks(
+  student: Student,
+  dates: string[],
+  sessions: ClinicSession[]
+): WeekBlock[] {
+  const blocks: WeekBlock[] = [];
+  for (const dateIso of [...dates].sort()) {
+    for (const subject of student.subjects) {
+      const r = sessions.find(
+        (s) => s.studentId === student.id && s.date === dateIso && s.subject === subject
+      );
+      if (!r) continue;
+      if (r.attendance === "결석") continue; // 조건1: 결석 → 스킵
+      const hasTest = r.testScore != null;
+      const hasHw = r.hwDone != null || r.hwSsen != null;
+      if (!hasTest && !hasHw) continue; // 조건2: 아무것도 표기 안 됨 → 스킵
+      const maxv = r.max ?? 10;
+      blocks.push({
+        dateIso,
+        subject,
+        hasTest, // 조건3: 테스트만 있으면 테스트만
+        testPct: hasTest ? Math.round((Number(r.testScore) / maxv) * 100) : 0,
+        hwDone: r.hwDone, // 조건4: 과제만 있으면 과제만 (null 은 줄 생략)
+        hwSsen: r.hwSsen,
+      });
+    }
+  }
+  return blocks;
+}
+
+function buildWeeklyText(blocks: WeekBlock[]): string {
+  const subs = [...new Set(blocks.map((b) => b.subject))].join(", ");
+  const header =
+    `안녕하세요 더브코 알파 오현민T 조교입니다.\n` +
+    `이번 주 ${subs} 퀴즈 점수 및 과제 진행률 안내 드립니다 :)`;
+  const body = blocks
+    .map((b) => {
+      const lines = [`${md(b.dateIso)} ${b.subject}`];
+      if (b.hasTest) lines.push(`퀴즈 점수 : ${b.testPct}점`);
+      if (b.hwDone != null) lines.push(`과제 (프린트) 진행률 : ${hwPct(b.hwDone)}%`);
+      if (b.hwSsen != null) lines.push(`과제 (교재) 진행률 : ${hwPct(b.hwSsen)}%`);
+      return lines.join("\n");
+    })
+    .join("\n\n");
+  return `${header}\n\n${body}`;
+}
+
+function AdminWeekly({
+  students,
+  sessions,
+  clinicDates,
+}: {
+  students: Student[];
+  sessions: ClinicSession[];
+  clinicDates: string[];
+}) {
+  const [dates, setDates] = useState<Set<string>>(new Set());
+  const [testMode, setTestMode] = useState(true);
+  const [testNumber, setTestNumber] = useState("");
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState("");
+  const [lockTo, setLockTo] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .get("/api/admin/notify")
+      .then((d) => setLockTo(d?.testTo ?? null))
+      .catch(() => setLockTo(null));
+  }, []);
+
+  const selDates = [...dates];
+  const items = students
+    .filter((s) => s.status === "재원")
+    .map((s) => {
+      const blocks = buildStudentBlocks(s, selDates, sessions);
+      return {
+        id: s.id,
+        name: s.name,
+        num: s.password ?? "",
+        valid: phoneOk(s.password ?? ""),
+        blocks,
+        text: blocks.length ? buildWeeklyText(blocks) : "",
+      };
+    })
+    .filter((it) => it.blocks.length > 0)
+    .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+
+  const included = items.filter(
+    (it) => !excluded.has(it.id) && (testMode || it.valid)
+  );
+  const toggle = (id: string) =>
+    setExcluded((p) => {
+      const n = new Set(p);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+
+  const send = async () => {
+    setResult("");
+    if (testMode && !phoneOk(testNumber)) {
+      setResult("테스트로 받을 번호를 올바르게 입력하세요.");
+      return;
+    }
+    const msgs = included.map((it) => ({
+      to: testMode ? testNumber : it.num,
+      text: it.text,
+    }));
+    if (msgs.length === 0) {
+      setResult("보낼 대상이 없습니다.");
+      return;
+    }
+    if (
+      !confirm(
+        `${msgs.length}명에게 ${testMode ? "(테스트) 내 번호로 " : ""}문자를 보낼까요?`
+      )
+    )
+      return;
+    setSending(true);
+    try {
+      const res = await api.post("/api/admin/notify", { messages: msgs });
+      setResult(
+        `✅ 발송 완료 · 성공 ${res.sent}건 / 실패 ${res.failed}건` +
+          (res.redirectedTo ? ` (안전모드: ${res.redirectedTo} 로 전송)` : "")
+      );
+    } catch (e: any) {
+      setResult(`⚠️ ${e.message || "발송 실패"}`);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div>
+      <SectionTitle>주간 성적 안내 문자</SectionTitle>
+
+      <Card style={{ padding: 16, marginBottom: 14 }}>
+        <div style={lbl}>보낼 날짜 선택 (여러 날 묶어서 한 문자로)</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 6 }}>
+          {clinicDates.map((d) => {
+            const on = dates.has(d);
+            return (
+              <button
+                key={d}
+                type="button"
+                onClick={() =>
+                  setDates((p) => {
+                    const n = new Set(p);
+                    n.has(d) ? n.delete(d) : n.add(d);
+                    return n;
+                  })
+                }
+                style={{
+                  padding: "7px 13px",
+                  borderRadius: 999,
+                  border: `1px solid ${on ? T.primary : T.line}`,
+                  background: on ? T.primarySoft : "#fff",
+                  color: on ? T.primary : T.sub,
+                  fontWeight: on ? 800 : 600,
+                  fontSize: 13.5,
+                  fontFamily: FONT,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {on ? "✓ " : ""}
+                {md(d)}
+              </button>
+            );
+          })}
+        </div>
+      </Card>
+
+      <Card style={{ padding: 16, marginBottom: 14 }}>
+        {lockTo && (
+          <div
+            style={{
+              background: T.warnSoft,
+              color: T.warn,
+              border: `1px solid ${T.warn}`,
+              borderRadius: 10,
+              padding: "10px 12px",
+              fontSize: 13,
+              fontWeight: 700,
+              marginBottom: 12,
+            }}
+          >
+            🔒 안전 모드: 지금은 부모님이 아니라 <b>{lockTo}</b> 번호로만 발송됩니다.
+          </div>
+        )}
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            fontSize: 14,
+            fontWeight: 700,
+            color: T.ink,
+            marginBottom: 10,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={testMode}
+            onChange={(e) => setTestMode(e.target.checked)}
+          />
+          테스트 발송 (부모님 대신 아래 내 번호로 전부 보내기)
+        </label>
+        {testMode && (
+          <input
+            style={{ ...inputBase, marginBottom: 4 }}
+            inputMode="numeric"
+            placeholder="테스트로 받을 내 번호 (예: 01012345678)"
+            value={testNumber}
+            onChange={(e) => setTestNumber(e.target.value)}
+          />
+        )}
+      </Card>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 10,
+          marginBottom: 10,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 13.5, color: T.sub, fontWeight: 600 }}>
+            {selDates.length === 0
+              ? "먼저 위에서 날짜를 선택하세요."
+              : `발송 대상 ${included.length}명 (내용 있는 학생만 표시)`}
+          </div>
+          {items.length > 0 && (
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 13.5,
+                fontWeight: 700,
+                color: T.sub,
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={items.every((it) => !excluded.has(it.id))}
+                onChange={(e) =>
+                  setExcluded(
+                    e.target.checked ? new Set() : new Set(items.map((it) => it.id))
+                  )
+                }
+                style={{ width: 16, height: 16, cursor: "pointer" }}
+              />
+              전체 선택/해제
+            </label>
+          )}
+        </div>
+        <Btn onClick={send} disabled={sending || included.length === 0}>
+          <Send size={16} />
+          {sending ? "발송 중…" : `문자 발송 (${included.length})`}
+        </Btn>
+      </div>
+
+      {result && (
+        <div
+          style={{
+            marginBottom: 12,
+            fontSize: 13.5,
+            fontWeight: 700,
+            color: result.startsWith("✅") ? T.ok : T.bad,
+          }}
+        >
+          {result}
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {selDates.length > 0 && items.length === 0 && (
+          <Card style={{ padding: 8 }}>
+            <Empty icon={<Inbox size={28} />} text="선택한 날짜에 보낼 내용이 있는 학생이 없습니다" />
+          </Card>
+        )}
+        {items.map((it) => {
+          const on = !excluded.has(it.id) && (testMode || it.valid);
+          return (
+            <Card key={it.id} style={{ padding: 14, opacity: on ? 1 : 0.55 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={!testMode && !it.valid}
+                  onChange={() => toggle(it.id)}
+                  style={{ width: 18, height: 18, cursor: "pointer" }}
+                />
+                <span style={{ fontWeight: 800, color: T.ink, fontSize: 15 }}>
+                  {it.name}
+                </span>
+                <span
+                  style={{
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    color: it.valid ? T.muted : T.bad,
+                  }}
+                >
+                  {it.valid ? it.num : "번호 없음/형식 오류 (미발송)"}
+                </span>
+              </div>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: T.ink,
+                  whiteSpace: "pre-wrap",
+                  background: "#F6F8FB",
+                  border: `1px solid ${T.line}`,
+                  borderRadius: 10,
+                  padding: "10px 12px",
+                  lineHeight: 1.5,
+                }}
+              >
+                {it.text}
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ============================== PORTAL ============================== */
 /* ============================== TERMS (학기 관리) ============================== */
 function AdminTerms({
@@ -2184,6 +2535,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
   const NAV: NavItem[] = [
     { k: "board", label: "클리닉 현황", icon: <CalendarDays size={18} /> },
     { k: "quick", label: "테스트·과제", icon: <ClipboardCheck size={18} /> },
+    { k: "weekly", label: "주간 안내 문자", icon: <Send size={18} /> },
     { k: "students", label: "학생 관리", icon: <Users size={18} /> },
     { k: "responses", label: "응답 관리", icon: <Inbox size={18} /> },
     { k: "terms", label: "학기 관리", icon: <CalendarDays size={18} /> },
@@ -2281,6 +2633,14 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                   onSetAdminFields={setAdminFields}
                   onSetTestMax={setTestMaxFor}
                   onEditing={markEditing}
+                />
+              )}
+              {tab === "weekly" && (
+                <AdminWeekly
+                  key={termId}
+                  students={students}
+                  sessions={sessions}
+                  clinicDates={clinicDates}
                 />
               )}
               {tab === "students" && (
