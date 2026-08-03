@@ -695,17 +695,20 @@ function AdminBoard({
   sessions,
   testMax,
   testDetail,
+  additionalMessages,
   clinicDates,
   subjects,
   onSetAdminFields,
   onSetTestMax,
   onSetTestDetail,
+  onSetAdditionalMessage,
   onEditing,
 }: {
   students: Student[];
   sessions: ClinicSession[];
   testMax: Record<string, number>;
   testDetail: Record<string, string>;
+  additionalMessages: Record<string, string>;
   clinicDates: string[];
   subjects: string[];
   onSetAdminFields: (
@@ -720,6 +723,7 @@ function AdminBoard({
     val: number | null
   ) => void;
   onSetTestDetail: (date: string, subject: string, str: string) => void;
+  onSetAdditionalMessage: (date: string, subject: string, str: string) => void;
   onEditing: () => void;
 }) {
   const [date, setDate] = useState(() => restoreDate(clinicDates));
@@ -753,6 +757,7 @@ function AdminBoard({
   // 테스트 만점 기본 10 (설정이 있으면 그 값)
   const max = testMax[maxKey] ?? 10;
   const detail = testDetail[maxKey] ?? "";
+  const additionalMessage = additionalMessages[maxKey] ?? "";
   const roster = students
     .filter((s) => (showAll || s.status === "재원") && s.subjects.includes(subject))
     .sort((a, b) => a.name.localeCompare(b.name, "ko"));
@@ -841,6 +846,31 @@ function AdminBoard({
             />{" "}
             퇴원생 포함
           </label>
+        </div>
+        <div
+          style={{
+            marginTop: 14,
+            paddingTop: 14,
+            borderTop: `1px solid ${T.line}`,
+          }}
+        >
+          <div style={lbl}>추가 메시지</div>
+          <LazyInput
+            multiline
+            style={{
+              ...inputBase,
+              minHeight: 72,
+              resize: "vertical",
+              lineHeight: 1.5,
+            }}
+            value={additionalMessage}
+            placeholder="이 날짜의 이 수업 문자에만 추가할 내용을 입력하세요."
+            onType={onEditing}
+            onCommit={(v) => onSetAdditionalMessage(date, subject, v)}
+          />
+          <div style={{ marginTop: 6, fontSize: 12, color: T.muted }}>
+            주간 안내 문자에서 인사말 아래, 성적 내용 위에 표시됩니다.
+          </div>
         </div>
       </Card>
 
@@ -1733,6 +1763,7 @@ function hwPct(v: number): number {
 type WeekBlock = {
   dateIso: string;
   subject: string;
+  additionalMessage: string;
   hasTest: boolean;
   testPct: number;
   hwDone: number | null;
@@ -1743,7 +1774,8 @@ type WeekBlock = {
 function buildStudentBlocks(
   student: Student,
   dates: string[],
-  sessions: ClinicSession[]
+  sessions: ClinicSession[],
+  additionalMessages: Record<string, string>
 ): WeekBlock[] {
   const blocks: WeekBlock[] = [];
   for (const dateIso of [...dates].sort()) {
@@ -1760,6 +1792,7 @@ function buildStudentBlocks(
       blocks.push({
         dateIso,
         subject,
+        additionalMessage: additionalMessages[`${dateIso}|${subject}`] ?? "",
         hasTest, // 조건3: 테스트만 있으면 테스트만
         testPct: hasTest ? Math.round((Number(r.testScore) / maxv) * 100) : 0,
         hwDone: r.hwDone, // 조건4: 과제만 있으면 과제만 (null 은 줄 생략)
@@ -1775,6 +1808,10 @@ function buildWeeklyText(blocks: WeekBlock[]): string {
   const header =
     `안녕하세요 더브코 알파 오현민T 조교입니다.\n` +
     `이번 주 ${subs} 퀴즈 점수 및 과제 진행률 안내 드립니다 :)`;
+  const additional = blocks
+    .map((b) => b.additionalMessage.trim())
+    .filter(Boolean)
+    .join("\n");
   const body = blocks
     .map((b) => {
       const lines = [`${md(b.dateIso)} ${b.subject}`];
@@ -1784,17 +1821,19 @@ function buildWeeklyText(blocks: WeekBlock[]): string {
       return lines.join("\n");
     })
     .join("\n\n");
-  return `${header}\n\n${body}`;
+  return [header, additional, body].filter(Boolean).join("\n\n");
 }
 
 function AdminWeekly({
   students,
   sessions,
   clinicDates,
+  additionalMessages,
 }: {
   students: Student[];
   sessions: ClinicSession[];
   clinicDates: string[];
+  additionalMessages: Record<string, string>;
 }) {
   const [dates, setDates] = useState<Set<string>>(new Set());
   const [testMode, setTestMode] = useState(true);
@@ -1817,7 +1856,7 @@ function AdminWeekly({
   const items = students
     .filter((s) => s.status === "재원")
     .map((s) => {
-      const blocks = buildStudentBlocks(s, selDates, sessions);
+      const blocks = buildStudentBlocks(s, selDates, sessions, additionalMessages);
       return {
         id: s.id,
         name: s.name,
@@ -2365,6 +2404,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
   const [sessions, setSessions] = useState<ClinicSession[]>([]);
   const [testMax, setTestMax] = useState<Record<string, number>>({});
   const [testDetail, setTestDetail] = useState<Record<string, string>>({});
+  const [additionalMessages, setAdditionalMessages] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
@@ -2389,6 +2429,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
     const d = await api.get(`/api/admin/testconfig${tq}`);
     setTestMax(d.max ?? {});
     setTestDetail(d.detail ?? {});
+    setAdditionalMessages(d.additionalMessage ?? {});
   };
   const reloadTerms = async () => {
     const ts: TermInfo[] = await api.get("/api/admin/terms");
@@ -2426,6 +2467,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
         setSessions(se);
         setTestMax(tm.max ?? {});
         setTestDetail(tm.detail ?? {});
+        setAdditionalMessages(tm.additionalMessage ?? {});
       })
       .catch((e: any) => setErr(e.message || "데이터를 불러오지 못했습니다."))
       .finally(() => setLoading(false));
@@ -2560,6 +2602,26 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
       await api.put("/api/admin/testconfig", { term: termId, subject, date, detail: str });
     } catch (e: any) {
       alert(e.message || "저장에 실패했습니다.");
+      reloadTestMax();
+    }
+  };
+
+  const setAdditionalMessageFor = async (
+    date: string,
+    subject: string,
+    str: string
+  ) => {
+    const key = `${date}|${subject}`;
+    setAdditionalMessages((p) => ({ ...p, [key]: str }));
+    try {
+      await api.put("/api/admin/testconfig", {
+        term: termId,
+        subject,
+        date,
+        additionalMessage: str,
+      });
+    } catch (e: any) {
+      alert(e.message || "추가 메시지 저장에 실패했습니다.");
       reloadTestMax();
     }
   };
@@ -2717,11 +2779,13 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                   sessions={sessions}
                   testMax={testMax}
                   testDetail={testDetail}
+                  additionalMessages={additionalMessages}
                   clinicDates={clinicDates}
                   subjects={subjects}
                   onSetAdminFields={setAdminFields}
                   onSetTestMax={setTestMaxFor}
                   onSetTestDetail={setTestDetailFor}
+                  onSetAdditionalMessage={setAdditionalMessageFor}
                   onEditing={markEditing}
                 />
               )}
@@ -2744,6 +2808,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                   students={students}
                   sessions={sessions}
                   clinicDates={clinicDates}
+                  additionalMessages={additionalMessages}
                 />
               )}
               {tab === "students" && (

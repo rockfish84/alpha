@@ -8,7 +8,7 @@ import { toDate } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/admin/testconfig?term=ID -> { max: {키: 만점}, detail: {키: 문항} }
+// GET /api/admin/testconfig?term=ID -> 만점/문항/주간 추가 메시지 맵
 export async function GET(req: Request) {
   const g = await requireAdmin();
   if (!g.ok) return g.res;
@@ -16,11 +16,13 @@ export async function GET(req: Request) {
   await dbConnect();
   const { searchParams } = new URL(req.url);
   const term = await resolveTerm(searchParams.get("term"));
-  if (!term) return NextResponse.json({ max: {}, detail: {} });
+  if (!term) {
+    return NextResponse.json({ max: {}, detail: {}, additionalMessage: {} });
+  }
   return NextResponse.json(await buildTestMaps(String(term._id)));
 }
 
-// PUT /api/admin/testconfig -> 만점/문항 설정 (반 공통). body.term 필요.
+// PUT /api/admin/testconfig -> 만점/문항/추가 메시지 설정 (반 공통). body.term 필요.
 export async function PUT(req: Request) {
   const g = await requireAdmin();
   if (!g.ok) return g.res;
@@ -40,6 +42,10 @@ export async function PUT(req: Request) {
     set.maxScore = body.maxScore == null || body.maxScore === "" ? 10 : Number(body.maxScore);
   }
   if ("detail" in body) set.detail = body.detail ?? "";
+  if ("additionalMessage" in body) {
+    set.additionalMessage =
+      typeof body.additionalMessage === "string" ? body.additionalMessage : "";
+  }
 
   await TestConfig.findOneAndUpdate(
     { term: term._id, subject, date: toDate(date) },
