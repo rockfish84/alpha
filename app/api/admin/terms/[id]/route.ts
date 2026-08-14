@@ -3,6 +3,11 @@ import { dbConnect } from "@/lib/db";
 import { Term, Enrollment, Session, TestConfig } from "@/lib/models";
 import { requireAdmin } from "@/lib/auth";
 import { serializeTerm } from "@/lib/term";
+import {
+  mergeClinicDates,
+  normalizeClinicDates,
+  normalizeClinicDatesBySubject,
+} from "@/lib/clinic-dates";
 
 export const dynamic = "force-dynamic";
 
@@ -32,13 +37,35 @@ export async function PATCH(
   if (typeof body.startDate === "string") term.startDate = body.startDate;
   if (typeof body.endDate === "string") term.endDate = body.endDate;
   if (Array.isArray(body.subjects)) term.subjects = body.subjects;
-  if (Array.isArray(body.clinicDates))
-    term.clinicDates = [...new Set(body.clinicDates as string[])].sort();
-
-  if (body.active === true) {
-    await Term.updateMany({ _id: { $ne: term._id } }, { $set: { active: false } });
-    term.active = true;
+  if (body.clinicDatesBySubject !== undefined) {
+    const clinicDatesBySubject = normalizeClinicDatesBySubject(
+      body.clinicDatesBySubject,
+      term.subjects
+    );
+    term.clinicDatesBySubject = new Map(Object.entries(clinicDatesBySubject));
+    // 과목별 일정이 있으면 공통 날짜는 항상 그 union으로부터 파생한다.
+    term.clinicDates = mergeClinicDates(clinicDatesBySubject);
+  } else {
+    const clinicDatesBySubject = normalizeClinicDatesBySubject(
+      term.clinicDatesBySubject,
+      term.subjects
+    );
+    if (Array.isArray(body.subjects)) {
+      // 반을 제거한 경우 사라진 반의 일정도 함께 제거한다.
+      term.clinicDatesBySubject = new Map(
+        Object.entries(clinicDatesBySubject)
+      );
+    }
+    if (Object.keys(clinicDatesBySubject).length) {
+      // 구형 화면이 clinicDates만 보내더라도 과목별 일정과 union이 어긋나지 않게 한다.
+      term.clinicDates = mergeClinicDates(clinicDatesBySubject);
+    } else if (Array.isArray(body.clinicDates)) {
+      term.clinicDates = normalizeClinicDates(body.clinicDates);
+    }
   }
+
+  // 진행 학기는 서로 배타적이지 않다. 학기별로 시작/종료한다.
+  if (typeof body.active === "boolean") term.active = body.active;
 
   await term.save();
   return NextResponse.json(serializeTerm(term.toObject()));
@@ -65,12 +92,15 @@ export async function DELETE(
   ]);
   await term.deleteOne();
 
-  // 활성 학기가 사라졌으면 가장 최신 학기를 활성으로
+  // 진행 학기가 하나도 남지 않은 경우에만 가장 최신 학기를 진행 상태로 둔다.
   if (term.active) {
-    const next = await Term.findOne().sort({ order: -1, createdAt: -1 });
-    if (next) {
-      next.active = true;
-      await next.save();
+    const hasAnotherActive = await Term.exists({ active: true });
+    if (!hasAnotherActive) {
+      const next = await Term.findOne().sort({ order: -1, createdAt: -1 });
+      if (next) {
+        next.active = true;
+        await next.save();
+      }
     }
   }
   return NextResponse.json({ ok: true });

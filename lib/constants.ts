@@ -1,4 +1,5 @@
 // 클라이언트/서버 공용 상수 & 타입 (서버 전용 모듈을 import 하지 않음).
+import type { SchoolExamResult } from "./school-exams";
 
 /* ============================== THEME ============================== */
 export const T = {
@@ -80,18 +81,22 @@ export interface Student {
   grade: string;
   status: "재원" | "퇴원";
   subjects: string[];
+  schoolExamResults?: SchoolExamResult[];
 }
 
 export interface TermInfo {
   id: string;
   name: string;
   active: boolean;
+  schoolExamInput?: boolean;
   clinicDates: string[];
+  clinicDatesBySubject?: Record<string, string[]>;
   subjects: string[];
   grade?: string; // 학생 포털: 이 학기 내 학년
   startDate?: string;
   endDate?: string;
   order?: number;
+  schoolExamResults?: SchoolExamResult[]; // 학생이 추가한 1학기 학교 과목별 성적
 }
 
 export interface ClinicSession {

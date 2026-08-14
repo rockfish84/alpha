@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/auth";
 import { buildTestMaps } from "@/lib/testconfig";
 import { resolveTerm } from "@/lib/term";
 import { toDate } from "@/lib/date";
+import { getClinicDatesForSubject, isClinicDate } from "@/lib/clinic-dates";
 
 export const dynamic = "force-dynamic";
 
@@ -29,13 +30,33 @@ export async function PUT(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const { subject, date } = body;
-  if (!subject || !date) {
+  if (!body.term || !subject || !date) {
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
+  }
+  if (!isClinicDate(date)) {
+    return NextResponse.json({ error: "날짜 형식이 잘못되었습니다." }, { status: 400 });
   }
 
   await dbConnect();
   const term = await resolveTerm(body.term);
   if (!term) return NextResponse.json({ error: "학기가 없습니다." }, { status: 400 });
+
+  const configKey = { term: term._id, subject, date: toDate(date) };
+  const existing = await TestConfig.exists(configKey);
+  // 반 목록에 없는 legacy 설정은 계속 수정할 수 있지만 새로 만들 수는 없다.
+  if (!(term.subjects ?? []).includes(subject) && !existing) {
+    return NextResponse.json(
+      { error: "이 학기의 수업이 아닙니다." },
+      { status: 400 }
+    );
+  }
+  // 일정에서 빠진 과거 설정은 유지·수정 가능하되 새 설정은 실제 수업일에만 만든다.
+  if (!existing && !getClinicDatesForSubject(term, subject).includes(date)) {
+    return NextResponse.json(
+      { error: "이 수업에 등록된 클리닉 날짜가 아닙니다." },
+      { status: 400 }
+    );
+  }
 
   const set: Record<string, any> = {};
   if ("maxScore" in body) {
@@ -48,7 +69,7 @@ export async function PUT(req: Request) {
   }
 
   await TestConfig.findOneAndUpdate(
-    { term: term._id, subject, date: toDate(date) },
+    configKey,
     { $set: set },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );

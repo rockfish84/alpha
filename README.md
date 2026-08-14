@@ -84,8 +84,10 @@ TZ             = Asia/Seoul
 
 ## 데이터 모델 (Mongoose)
 
-- **Student** — name, username(unique), password(hash), grade, status(재원/퇴원), subjects[]
-- **Session** — student(ref), subject, date, 학생입력(attendance·sources·qNumbers·qTypes·request…),
+- **Student** — 학기와 무관한 로그인 계정(name, username, password)
+- **Enrollment** — term+student(unique), 학기별 grade·subjects·status,
+  2026 2학기 대상 반의 과목별 1학기 중간·기말·등급
+- **Session** — term+student+subject+date(unique), 학생입력(attendance·sources·qNumbers·qTypes·request…),
   관리자입력(hwDone·testScore·solved·adminNote). 유니크: `{student, subject, date}`
 - **TestConfig** — subject, date, maxScore. 유니크: `{subject, date}` (회차별 테스트 만점)
 - **Admin** — username(unique), password(hash)
@@ -104,6 +106,7 @@ TZ             = Asia/Seoul
 | `POST /api/sessions` | 학생 | 출결·질문 제출 (upsert) |
 | `PATCH /api/sessions/:id` · `DELETE /api/sessions/:id` | 학생 | 내 응답 수정/삭제 |
 | `GET /api/stats` | 학생 | 과제 완료율·테스트 평균·추이 |
+| `GET` · `PUT /api/school-exams` | 학생 | 본인의 2026 2학기 수업별 1학기 학교 성적 조회·입력 |
 | `GET /api/admin/students` · `POST` · `PATCH /:id` · `DELETE /:id` | 관리자 | 학생 계정 CRUD·재원/퇴원 |
 | `GET /api/admin/sessions` · `PATCH` · `DELETE /:id` | 관리자 | 현황 조회·채점(upsert)·응답 삭제 |
 | `GET /api/admin/testconfig` · `PUT` | 관리자 | 테스트 만점 개수 조회·설정 |
@@ -117,16 +120,30 @@ TZ             = Asia/Seoul
 
 데이터는 **학기(Term)** 단위로 분리됩니다. 각 학기가 자기 **반·클리닉 날짜·명단·기록**을 가지며,
 학생 계정은 학기와 무관하게 유지되고 학기별 **등록(Enrollment)** 으로 수강 반이 관리됩니다.
-학생은 학기 선택으로 **지난 학기 기록**을 조회할 수 있습니다.
+학생은 학기 선택으로 **지난 학기 기록**을 조회할 수 있습니다. 여러 학기를 동시에
+진행 상태로 둘 수 있어 여름학기와 2학기를 병행해도 등록·클리닉·성적 데이터가 섞이지 않습니다.
 
-**관리자 화면**: 상단 학기 선택기로 전환, **학기 관리** 탭에서 학기 생성/활성화/설정(반·날짜)/삭제.
+**관리자 화면**: 상단 학기 선택기로 전환, **학기 관리** 탭에서 학기 생성/진행 시작·종료/설정(반·날짜)/삭제.
 새 학기 만들 때 이전 학기에서 반·날짜·명단을 복사할 수 있습니다.
+
+`2026 2학기`의 `고1 공수2`, `고2 미적분1`, `고2 확통` 수강생에게는 학생 화면에
+**1학기 성적 입력** 탭이 표시됩니다. 학생은 실제 1학기 학교 과목명과
+중간·기말고사 성적, 등급을 입력합니다. 학교 과목은 여러 개 추가·삭제할 수 있으며 학생의
+2학기 등록(Enrollment)에 목록으로 저장됩니다. 관리자는 별도 **학교 성적 관리** 탭에서
+현재 수강반을 선택하고 학생별 여러 학교 과목을 각각 조회합니다.
+
+**2026 2학기 첨부 명단 정확 반영** (기본은 DRY RUN):
+```bash
+npx tsx scripts/setup-2026-second-term.ts
+npx tsx scripts/setup-2026-second-term.ts --apply
+```
+기존 학생 계정은 재사용하고 신규 계정만 생성합니다. 이 스크립트는 2학기 명단만 조정하며
+여름학기와 기존 학생 기록은 수정하지 않습니다. 엑셀 파서는 검토한 첨부 파일의 SHA-256이
+일치할 때만 실행됩니다.
 
 **새 학기 명단 일괄 등록 (엑셀)**:
 ```bash
-# 활성 학기에 등록
-npx tsx scripts/import-students.ts
-# 특정 학기에 등록
+# 진행 학기가 여러 개면 반드시 대상 학기 지정
 npx tsx scripts/import-students.ts --term="2026 가을"
 ```
 기존 계정은 재사용(비번 유지)하고 신규만 생성하며, 그 학기 반 목록도 자동 갱신됩니다.
@@ -135,6 +152,14 @@ npx tsx scripts/import-students.ts --term="2026 가을"
 ```bash
 npx tsx scripts/set-clinic-dates.ts --term="2026 가을" 2026-09-05 2026-09-06
 ```
+
+`2026 여름특강`과 `2026 2학기`의 **과목별 요일 일정 반영** (기본은 DRY RUN):
+```bash
+node --import tsx scripts/setup-subject-clinic-dates.ts
+node --import tsx scripts/setup-subject-clinic-dates.ts --apply
+```
+과거 Session/TestConfig가 있는 날짜는 과목별 일정에 합쳐 보존하고, 두 학기의 일정 필드만
+트랜잭션으로 갱신합니다. Enrollment·Session·TestConfig 문서는 수정하거나 삭제하지 않습니다.
 
 **최초 도입 마이그레이션** (기존 전역 데이터 → 첫 학기):
 ```bash

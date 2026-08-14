@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
+    "test": "node --import tsx --test tests/*.test.ts",
     "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
@@ -20,7 +21,8 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.12.7",
-    "tsx": "^4.16.5"
+    "tsx": "^4.16.5",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

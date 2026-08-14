@@ -1,18 +1,17 @@
 /**
  * 학기의 클리닉 날짜 설정.
- *   # 활성 학기에 날짜 추가(병합)
- *   npx tsx scripts/set-clinic-dates.ts 2026-09-05 2026-09-06
- *   # 특정 학기 지정
+ *   # 특정 학기에 날짜 추가(병합). 진행 학기가 여러 개면 --term 필수.
  *   npx tsx scripts/set-clinic-dates.ts --term="2026 가을" 2026-09-05
  *   # 인자 없으면 오늘~END 주말 자동
- *   npx tsx scripts/set-clinic-dates.ts
+ *   npx tsx scripts/set-clinic-dates.ts --term="2026 가을"
  *   # 기존 목록 무시하고 교체
- *   REPLACE=1 npx tsx scripts/set-clinic-dates.ts 2026-07-11 2026-07-12
+ *   REPLACE=1 npx tsx scripts/set-clinic-dates.ts --term="2026 가을" 2026-09-05
  */
 import "dotenv/config";
 import mongoose from "mongoose";
 import { dbConnect } from "../lib/db";
 import { Term } from "../lib/models";
+import { normalizeClinicDatesBySubject } from "../lib/clinic-dates";
 
 const END = "2026-08-31";
 
@@ -39,11 +38,29 @@ async function main() {
   const incoming = args.length ? args : weekendsUntil(END);
 
   await dbConnect();
-  const term = termArg
-    ? await Term.findOne({ name: termArg })
-    : await Term.findOne({ active: true });
+  let term = termArg ? await Term.findOne({ name: termArg }) : null;
+  if (!termArg) {
+    const activeTerms = await Term.find({ active: true }).sort({ order: -1 });
+    if (activeTerms.length > 1) {
+      console.error(
+        `진행 중인 학기가 ${activeTerms.length}개입니다. --term="이름"을 지정하세요.`
+      );
+      process.exit(1);
+    }
+    term = activeTerms[0] ?? null;
+  }
   if (!term) {
-    console.error(`대상 학기 없음. --term="이름" 지정 또는 활성 학기 필요.`);
+    console.error(`대상 학기 없음. --term="이름" 지정 또는 단일 진행 학기 필요.`);
+    process.exit(1);
+  }
+  if (
+    Object.keys(
+      normalizeClinicDatesBySubject(term.clinicDatesBySubject, term.subjects)
+    ).length
+  ) {
+    console.error(
+      `'${term.name}'은 과목별 클리닉 일정이 적용된 학기입니다. 공통 날짜 스크립트로 변경할 수 없습니다.`
+    );
     process.exit(1);
   }
 

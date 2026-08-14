@@ -3,6 +3,11 @@ import { dbConnect } from "@/lib/db";
 import { Term, Enrollment } from "@/lib/models";
 import { requireAdmin } from "@/lib/auth";
 import { serializeTerm } from "@/lib/term";
+import {
+  mergeClinicDates,
+  normalizeClinicDates,
+  normalizeClinicDatesBySubject,
+} from "@/lib/clinic-dates";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +39,8 @@ export async function POST(req: Request) {
   }
 
   let subjects: string[] = Array.isArray(body.subjects) ? body.subjects : [];
-  let clinicDates: string[] = Array.isArray(body.clinicDates) ? body.clinicDates : [];
+  let clinicDates = normalizeClinicDates(body.clinicDates);
+  let rawClinicDatesBySubject: unknown = body.clinicDatesBySubject;
   let copyRoster = false;
   let source: any = null;
   if (copyFrom) {
@@ -42,21 +48,33 @@ export async function POST(req: Request) {
     if (source) {
       if (!subjects.length) subjects = source.subjects ?? [];
       if (!clinicDates.length) clinicDates = source.clinicDates ?? [];
+      if (!Object.keys(normalizeClinicDatesBySubject(rawClinicDatesBySubject)).length) {
+        rawClinicDatesBySubject = source.clinicDatesBySubject;
+      }
       copyRoster = body.copyRoster !== false; // 기본 명단도 복사
     }
+  }
+
+  const clinicDatesBySubject = normalizeClinicDatesBySubject(
+    rawClinicDatesBySubject,
+    subjects
+  );
+  if (Object.keys(clinicDatesBySubject).length) {
+    clinicDates = mergeClinicDates(clinicDatesBySubject);
   }
 
   const maxOrder = await Term.findOne().sort({ order: -1 }).lean();
   const order = (maxOrder?.order ?? 0) + 1;
 
-  if (activate) await Term.updateMany({}, { $set: { active: false } });
   const term = await Term.create({
     name,
     startDate: startDate ?? "",
     endDate: endDate ?? "",
     subjects,
     clinicDates,
+    clinicDatesBySubject,
     order,
+    // 여름학기와 정규학기처럼 여러 학기를 동시에 운영할 수 있다.
     active: !!activate,
   });
 

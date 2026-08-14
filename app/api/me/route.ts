@@ -3,6 +3,7 @@ import { dbConnect } from "@/lib/db";
 import { Student, Enrollment, Term } from "@/lib/models";
 import { getSession } from "@/lib/auth";
 import { serializeTerm } from "@/lib/term";
+import { serializeSchoolExamResults } from "@/lib/school-exams";
 
 export const dynamic = "force-dynamic";
 
@@ -43,9 +44,15 @@ export async function GET() {
       id: st.id,
       name: st.name,
       active: st.active,
+      schoolExamInput: st.schoolExamInput,
       clinicDates: st.clinicDates,
+      clinicDatesBySubject: st.clinicDatesBySubject,
       grade: (enr?.grade ?? "") as string,
       subjects: (enr?.subjects ?? []) as string[],
+      schoolExamResults:
+        st.schoolExamInput
+          ? serializeSchoolExamResults(enr?.schoolExamResults)
+          : [],
     };
   });
 

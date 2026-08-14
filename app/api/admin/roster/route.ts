@@ -42,8 +42,11 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const { name, username, password, grade, subjects, status } = body;
-  if (!name || !username) {
-    return NextResponse.json({ error: "이름·아이디는 필수입니다." }, { status: 400 });
+  if (!body.term || !name || !username) {
+    return NextResponse.json(
+      { error: "학기·이름·아이디는 필수입니다." },
+      { status: 400 }
+    );
   }
 
   await dbConnect();

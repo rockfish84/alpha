@@ -133,15 +133,23 @@ async function main() {
   await dbConnect();
   console.log("\n● MongoDB 연결됨");
 
-  // 대상 학기: --term="이름" 또는 TERM 환경변수, 없으면 활성 학기
+  // 대상 학기: --term="이름" 또는 TERM 환경변수. 진행 학기가 하나일 때만 생략 가능.
   const termArg =
     process.argv.find((x) => x.startsWith("--term="))?.slice(7) || process.env.TERM;
-  const term = termArg
-    ? await Term.findOne({ name: termArg })
-    : await Term.findOne({ active: true });
+  let term = termArg ? await Term.findOne({ name: termArg }) : null;
+  if (!termArg) {
+    const activeTerms = await Term.find({ active: true }).sort({ order: -1 });
+    if (activeTerms.length > 1) {
+      console.error(
+        `진행 중인 학기가 ${activeTerms.length}개입니다. --term="학기이름"을 지정하세요.`
+      );
+      process.exit(1);
+    }
+    term = activeTerms[0] ?? null;
+  }
   if (!term) {
     console.error(
-      `대상 학기를 찾을 수 없습니다. --term="학기이름" 지정 또는 활성 학기 필요.`
+      `대상 학기를 찾을 수 없습니다. --term="학기이름" 지정 또는 단일 진행 학기 필요.`
     );
     process.exit(1);
   }

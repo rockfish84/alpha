@@ -1,4 +1,9 @@
 import { Schema, model, models, type InferSchemaType, type Model } from "mongoose";
+import {
+  SCHOOL_EXAM_GRADE_MAX_LENGTH,
+  SCHOOL_EXAM_NAME_MAX_LENGTH,
+  SCHOOL_EXAM_SUBJECTS,
+} from "./school-exams";
 
 /* ============================== Term (학기/분기) ============================== */
 const TermSchema = new Schema(
@@ -8,7 +13,10 @@ const TermSchema = new Schema(
     endDate: { type: String, default: "" },
     subjects: { type: [String], default: [] }, // 이 학기의 반 목록
     clinicDates: { type: [String], default: [] }, // 이 학기의 클리닉 날짜
-    active: { type: Boolean, default: false }, // 현재 활성 학기 (하나만 true)
+    // 과목별 클리닉 날짜. 키가 없는 기존 학기는 clinicDates를 공통 일정으로 사용한다.
+    clinicDatesBySubject: { type: Map, of: [String], default: {} },
+    active: { type: Boolean, default: false }, // 진행 중인 학기 (여러 학기 동시 진행 가능)
+    schoolExamInput: { type: Boolean, default: false }, // 학생 1학기 학교 성적 입력 기능
     order: { type: Number, default: 0 }, // 정렬용 (클수록 최신)
   },
   { timestamps: true }
@@ -31,6 +39,25 @@ const StudentSchema = new Schema(
 );
 
 /* ============================== Enrollment (학기별 등록) ============================== */
+const SchoolExamResultSchema = new Schema(
+  {
+    subject: {
+      type: String,
+      enum: [...SCHOOL_EXAM_SUBJECTS],
+      required: false, // 이전 현재-수강반별 저장값 호환용. 신규 학교 과목 행에는 사용하지 않음.
+    },
+    schoolSubjectName: {
+      type: String,
+      default: "",
+      maxlength: SCHOOL_EXAM_NAME_MAX_LENGTH,
+    },
+    midtermScore: { type: Number, default: null, min: 0, max: 100 },
+    finalScore: { type: Number, default: null, min: 0, max: 100 },
+    grade: { type: String, default: "", maxlength: SCHOOL_EXAM_GRADE_MAX_LENGTH },
+  },
+  { _id: false }
+);
+
 const EnrollmentSchema = new Schema(
   {
     term: { type: Schema.Types.ObjectId, ref: "Term", required: true },
@@ -38,6 +65,8 @@ const EnrollmentSchema = new Schema(
     grade: { type: String, default: "" }, // 이 학기 학년
     subjects: { type: [String], default: [] }, // 이 학기 듣는 반
     status: { type: String, enum: ["재원", "퇴원"], default: "재원" },
+    // 2026 2학기 대상 학생의 1학기 학교 성적 과목 목록 (학기 등록별 저장)
+    schoolExamResults: { type: [SchoolExamResultSchema], default: [] },
   },
   { timestamps: true }
 );

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { dbConnect } from "@/lib/db";
-import { Session } from "@/lib/models";
+import { Enrollment, Session, Term } from "@/lib/models";
 import { requireStudent } from "@/lib/auth";
 import { serializeSession } from "@/lib/serialize";
 import { buildMaxMap } from "@/lib/testconfig";
@@ -23,6 +23,26 @@ export async function PATCH(
   // 소유권 검증: 본인 데이터만
   if (String(doc.student) !== g.user.id) {
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  }
+
+  const [term, enrollment] = await Promise.all([
+    Term.findById(doc.term).lean(),
+    Enrollment.findOne({
+      term: doc.term,
+      student: g.user.id,
+      status: "재원",
+      subjects: doc.subject,
+    }).lean(),
+  ]);
+  if (
+    !term?.active ||
+    !enrollment ||
+    !(term.subjects ?? []).includes(doc.subject)
+  ) {
+    return NextResponse.json(
+      { error: "진행 중인 수강 수업의 응답만 수정할 수 있습니다." },
+      { status: 403 }
+    );
   }
 
   const body = await req.json().catch(() => ({}));
@@ -62,6 +82,25 @@ export async function DELETE(
   }
   if (String(doc.student) !== g.user.id) {
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  }
+  const [term, enrollment] = await Promise.all([
+    Term.findById(doc.term).lean(),
+    Enrollment.findOne({
+      term: doc.term,
+      student: g.user.id,
+      status: "재원",
+      subjects: doc.subject,
+    }).lean(),
+  ]);
+  if (
+    !term?.active ||
+    !enrollment ||
+    !(term.subjects ?? []).includes(doc.subject)
+  ) {
+    return NextResponse.json(
+      { error: "진행 중인 수강 수업의 응답만 삭제할 수 있습니다." },
+      { status: 403 }
+    );
   }
   await doc.deleteOne();
   return NextResponse.json({ ok: true });

@@ -14,6 +14,7 @@ import {
   Eye,
   MessageSquare,
   Send,
+  FileText,
 } from "lucide-react";
 import {
   T,
@@ -26,6 +27,8 @@ import {
   type TermInfo,
 } from "@/lib/constants";
 import { api } from "@/lib/api";
+import { getClinicDatesForSubject } from "@/lib/clinic-dates";
+import { isSchoolExamSubject } from "@/lib/school-exams";
 import {
   Btn,
   Card,
@@ -697,6 +700,7 @@ function AdminBoard({
   testDetail,
   additionalMessages,
   clinicDates,
+  clinicDatesBySubject,
   subjects,
   onSetAdminFields,
   onSetTestMax,
@@ -710,6 +714,7 @@ function AdminBoard({
   testDetail: Record<string, string>;
   additionalMessages: Record<string, string>;
   clinicDates: string[];
+  clinicDatesBySubject?: Record<string, string[]>;
   subjects: string[];
   onSetAdminFields: (
     studentId: string,
@@ -726,8 +731,16 @@ function AdminBoard({
   onSetAdditionalMessage: (date: string, subject: string, str: string) => void;
   onEditing: () => void;
 }) {
-  const [date, setDate] = useState(() => restoreDate(clinicDates));
   const [subject, setSubject] = useState(() => restoreSubject(subjects));
+  const subjectClinicDates = useMemo(
+    () =>
+      getClinicDatesForSubject(
+        { clinicDates, clinicDatesBySubject },
+        subject
+      ),
+    [clinicDates, clinicDatesBySubject, subject]
+  );
+  const [date, setDate] = useState(() => restoreDate(subjectClinicDates));
   const [showAll, setShowAll] = useState(false);
   const [view, setView] = useState<ClinicSession | null>(null);
   const [notify, setNotify] = useState(false);
@@ -748,6 +761,13 @@ function AdminBoard({
   useEffect(() => {
     if (date) ls.set(LS_DATE, date);
   }, [date]);
+  useEffect(() => {
+    setDate((current) =>
+      subjectClinicDates.includes(current)
+        ? current
+        : restoreDate(subjectClinicDates)
+    );
+  }, [subjectClinicDates]);
   // 날짜/과목이 바뀌면 발송 체크 초기화
   useEffect(() => {
     setSelected(new Set());
@@ -758,9 +778,15 @@ function AdminBoard({
   const max = testMax[maxKey] ?? 10;
   const detail = testDetail[maxKey] ?? "";
   const additionalMessage = additionalMessages[maxKey] ?? "";
-  const roster = students
-    .filter((s) => (showAll || s.status === "재원") && s.subjects.includes(subject))
-    .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  const hasClinicDate = !!date && subjectClinicDates.includes(date);
+  const roster = hasClinicDate
+    ? students
+        .filter(
+          (s) =>
+            (showAll || s.status === "재원") && s.subjects.includes(subject)
+        )
+        .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+    : [];
   const rowFor = (stu: Student) =>
     sessions.find(
       (s) => s.studentId === stu.id && s.date === date && s.subject === subject
@@ -783,13 +809,18 @@ function AdminBoard({
             <select
               style={inputBase}
               value={date}
+              disabled={!subjectClinicDates.length}
               onChange={(e) => setDate(e.target.value)}
             >
-              {clinicDates.map((d) => (
-                <option key={d} value={d}>
-                  {md(d)}
-                </option>
-              ))}
+              {subjectClinicDates.length ? (
+                subjectClinicDates.map((d) => (
+                  <option key={d} value={d}>
+                    {md(d)}
+                  </option>
+                ))
+              ) : (
+                <option value="">등록된 날짜 없음</option>
+              )}
             </select>
           </div>
           <div style={{ minWidth: 120 }}>
@@ -811,6 +842,7 @@ function AdminBoard({
               style={inputBase}
               value={String(max)}
               placeholder="10"
+              disabled={!hasClinicDate}
               onType={onEditing}
               onCommit={(v) => {
                 const n = toNum(v);
@@ -824,6 +856,7 @@ function AdminBoard({
               style={inputBase}
               value={detail}
               placeholder="예: 3,6,9번"
+              disabled={!hasClinicDate}
               onType={onEditing}
               onCommit={(v) => onSetTestDetail(date, subject, v)}
             />
@@ -865,6 +898,7 @@ function AdminBoard({
             }}
             value={additionalMessage}
             placeholder="이 날짜의 이 수업 문자에만 추가할 내용을 입력하세요."
+            disabled={!hasClinicDate}
             onType={onEditing}
             onCommit={(v) => onSetAdditionalMessage(date, subject, v)}
           />
@@ -962,7 +996,11 @@ function AdminBoard({
                   <td colSpan={10}>
                     <Empty
                       icon={<Users size={28} />}
-                      text="해당 과목 학생이 없습니다"
+                      text={
+                        hasClinicDate
+                          ? "해당 과목 학생이 없습니다"
+                          : "해당 과목에 등록된 클리닉 날짜가 없습니다"
+                      }
                     />
                   </td>
                 </tr>
@@ -1111,6 +1149,7 @@ function AdminQuickGrade({
   sessions,
   testMax,
   clinicDates,
+  clinicDatesBySubject,
   subjects,
   onSetAdminFields,
   onSetTestMax,
@@ -1120,6 +1159,7 @@ function AdminQuickGrade({
   sessions: ClinicSession[];
   testMax: Record<string, number>;
   clinicDates: string[];
+  clinicDatesBySubject?: Record<string, string[]>;
   subjects: string[];
   onSetAdminFields: (
     studentId: string,
@@ -1130,8 +1170,16 @@ function AdminQuickGrade({
   onSetTestMax: (date: string, subject: string, val: number | null) => void;
   onEditing: () => void;
 }) {
-  const [date, setDate] = useState(() => restoreDate(clinicDates));
   const [subject, setSubject] = useState(() => restoreSubject(subjects));
+  const subjectClinicDates = useMemo(
+    () =>
+      getClinicDatesForSubject(
+        { clinicDates, clinicDatesBySubject },
+        subject
+      ),
+    [clinicDates, clinicDatesBySubject, subject]
+  );
+  const [date, setDate] = useState(() => restoreDate(subjectClinicDates));
   const [showAll, setShowAll] = useState(false);
 
   // 선택이 바뀌면 저장 (새로고침 후 복원용)
@@ -1141,12 +1189,25 @@ function AdminQuickGrade({
   useEffect(() => {
     if (date) ls.set(LS_DATE, date);
   }, [date]);
+  useEffect(() => {
+    setDate((current) =>
+      subjectClinicDates.includes(current)
+        ? current
+        : restoreDate(subjectClinicDates)
+    );
+  }, [subjectClinicDates]);
 
   const maxKey = `${date}|${subject}`;
   const max = testMax[maxKey] ?? 10;
-  const roster = students
-    .filter((s) => (showAll || s.status === "재원") && s.subjects.includes(subject))
-    .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  const hasClinicDate = !!date && subjectClinicDates.includes(date);
+  const roster = hasClinicDate
+    ? students
+        .filter(
+          (s) =>
+            (showAll || s.status === "재원") && s.subjects.includes(subject)
+        )
+        .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+    : [];
   const rowFor = (stu: Student) =>
     sessions.find(
       (s) => s.studentId === stu.id && s.date === date && s.subject === subject
@@ -1160,12 +1221,21 @@ function AdminQuickGrade({
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div style={{ flex: 1, minWidth: 110 }}>
             <div style={lbl}>날짜</div>
-            <select style={inputBase} value={date} onChange={(e) => setDate(e.target.value)}>
-              {clinicDates.map((d) => (
-                <option key={d} value={d}>
-                  {md(d)}
-                </option>
-              ))}
+            <select
+              style={inputBase}
+              value={date}
+              disabled={!subjectClinicDates.length}
+              onChange={(e) => setDate(e.target.value)}
+            >
+              {subjectClinicDates.length ? (
+                subjectClinicDates.map((d) => (
+                  <option key={d} value={d}>
+                    {md(d)}
+                  </option>
+                ))
+              ) : (
+                <option value="">등록된 날짜 없음</option>
+              )}
             </select>
           </div>
           <div style={{ flex: 1, minWidth: 110 }}>
@@ -1182,6 +1252,7 @@ function AdminQuickGrade({
               inputMode="decimal"
               style={inputBase}
               value={String(max)}
+              disabled={!hasClinicDate}
               onCommit={(v) => {
                 const n = toNum(v);
                 if (n !== undefined) onSetTestMax(date, subject, n);
@@ -1207,7 +1278,14 @@ function AdminQuickGrade({
 
       {roster.length === 0 && (
         <Card style={{ padding: 8 }}>
-          <Empty icon={<Users size={28} />} text="해당 과목 학생이 없습니다" />
+          <Empty
+            icon={<Users size={28} />}
+            text={
+              hasClinicDate
+                ? "해당 과목 학생이 없습니다"
+                : "해당 과목에 등록된 클리닉 날짜가 없습니다"
+            }
+          />
         </Card>
       )}
 
@@ -1480,7 +1558,15 @@ function AdminStudents({
           >
             <thead>
               <tr style={{ background: "#F6F8FB" }}>
-                {["이름", "아이디", "비밀번호", "학년", "과목", "상태", ""].map(
+                {[
+                  "이름",
+                  "아이디",
+                  "비밀번호",
+                  "학년",
+                  "과목",
+                  "상태",
+                  "",
+                ].map(
                   (h, i) => (
                     <th
                       key={i}
@@ -1502,13 +1588,13 @@ function AdminStudents({
             </thead>
             <tbody>
               {list.map((s) => (
-                <tr
-                  key={s.id}
-                  style={{
-                    borderBottom: `1px solid ${T.line}`,
-                    opacity: s.status === "퇴원" ? 0.6 : 1,
-                  }}
-                >
+                  <tr
+                    key={s.id}
+                    style={{
+                      borderBottom: `1px solid ${T.line}`,
+                      opacity: s.status === "퇴원" ? 0.6 : 1,
+                    }}
+                  >
                   <td
                     style={{
                       padding: "11px 14px",
@@ -1576,7 +1662,7 @@ function AdminStudents({
                       <Trash2 size={14} />
                     </Btn>
                   </td>
-                </tr>
+                  </tr>
               ))}
             </tbody>
           </table>
@@ -1601,6 +1687,240 @@ function AdminStudents({
           />
         )}
       </Modal>
+    </div>
+  );
+}
+
+/* ============================== SCHOOL EXAMS ============================== */
+function AdminSchoolExams({
+  term,
+  students,
+  subjects,
+}: {
+  term: TermInfo;
+  students: Student[];
+  subjects: string[];
+}) {
+  const examSubjects = subjects.filter(isSchoolExamSubject);
+  const [subject, setSubject] = useState(examSubjects[0] ?? "");
+  const [q, setQ] = useState("");
+
+  useEffect(() => {
+    if (!subject || !examSubjects.includes(subject)) {
+      setSubject(examSubjects[0] ?? "");
+    }
+  }, [examSubjects.join("|"), subject]);
+
+  if (!term.schoolExamInput || examSubjects.length === 0) {
+    return (
+      <div>
+        <SectionTitle>학교 성적 관리</SectionTitle>
+        <Card style={{ padding: 24 }}>
+          <Empty
+            icon={<FileText size={28} />}
+            text="이 학기에는 학교 성적 입력 대상 수업이 없습니다"
+          />
+        </Card>
+      </div>
+    );
+  }
+
+  const rows = students
+    .filter(
+      (student) =>
+        student.subjects.includes(subject) &&
+        (student.name.includes(q) || student.username.includes(q))
+    )
+    .sort((a, b) => {
+      if (a.status !== b.status) return a.status === "재원" ? -1 : 1;
+      return a.name.localeCompare(b.name, "ko");
+    });
+  const scoreCell = (value: number | null | undefined) =>
+    value == null ? "미입력" : `${value}점`;
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 10,
+          marginBottom: 14,
+        }}
+      >
+        <SectionTitle noMargin>
+          학교 성적 관리{" "}
+          <span style={{ fontSize: 14, color: T.muted, fontWeight: 600 }}>
+            ({rows.filter((student) => student.status === "재원").length}명)
+          </span>
+        </SectionTitle>
+        <div style={{ position: "relative" }}>
+          <Search
+            size={16}
+            color={T.muted}
+            style={{ position: "absolute", left: 11, top: 11 }}
+          />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="이름/아이디 검색"
+            style={{ ...inputBase, width: 220, paddingLeft: 34 }}
+          />
+        </div>
+      </div>
+
+      <Card
+        style={{
+          padding: 14,
+          marginBottom: 14,
+          color: T.sub,
+          fontSize: 13.5,
+          lineHeight: 1.6,
+        }}
+      >
+        학생이 <b>1학기 성적 입력</b> 탭에서 저장한 학교 과목명·중간·기말·등급을
+        조회합니다. 한 학생이 입력한 여러 학교 과목은 각각 별도 행으로 표시됩니다.
+      </Card>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+        {examSubjects.map((examSubject) => {
+          const active = subject === examSubject;
+          const count = students.filter(
+            (student) =>
+              student.status === "재원" &&
+              student.subjects.includes(examSubject)
+          ).length;
+          return (
+            <button
+              key={examSubject}
+              onClick={() => setSubject(examSubject)}
+              style={{
+                padding: "7px 14px",
+                borderRadius: 999,
+                border: `1px solid ${active ? T.primary : T.line}`,
+                background: active ? T.primarySoft : "#fff",
+                color: active ? T.primary : T.sub,
+                fontWeight: active ? 800 : 600,
+                fontSize: 13.5,
+                fontFamily: FONT,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {examSubject} <span style={{ opacity: 0.7 }}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <Card style={{ overflow: "hidden" }}>
+        <div style={{ overflowX: "auto" }}>
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              fontSize: 14,
+              minWidth: 980,
+            }}
+          >
+            <thead>
+              <tr style={{ background: "#F6F8FB" }}>
+                {[
+                  "이름",
+                  "아이디",
+                  "학년",
+                  "현재 2학기 수강반",
+                  "1학기 학교 과목명",
+                  "1학기 중간고사 성적",
+                  "1학기 기말고사 성적",
+                  "1학기 등급",
+                  "상태",
+                ].map((heading) => (
+                  <th
+                    key={heading}
+                    style={{
+                      textAlign: "left",
+                      padding: "11px 14px",
+                      fontSize: 12.5,
+                      fontWeight: 800,
+                      color: T.sub,
+                      borderBottom: `1px solid ${T.line}`,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {heading}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={9}>
+                    <Empty
+                      icon={<FileText size={28} />}
+                      text="해당 수업 학생이 없습니다"
+                    />
+                  </td>
+                </tr>
+              )}
+              {rows.flatMap((student) => {
+                const results = student.schoolExamResults?.length
+                  ? student.schoolExamResults
+                  : [undefined];
+                return results.map((result, resultIndex) => (
+                  <tr
+                    key={`${student.id}|${resultIndex}`}
+                    style={{
+                      borderBottom: `1px solid ${T.line}`,
+                      opacity: student.status === "퇴원" ? 0.6 : 1,
+                    }}
+                  >
+                    <td style={{ padding: "11px 14px", fontWeight: 700 }}>
+                      {student.name}
+                    </td>
+                    <td style={{ padding: "11px 14px", color: T.sub }}>
+                      {student.username}
+                    </td>
+                    <td style={{ padding: "11px 14px", color: T.sub }}>
+                      {student.grade}
+                    </td>
+                    <td style={{ padding: "11px 14px", color: T.sub }}>
+                      {subject}
+                    </td>
+                    <td
+                      style={{
+                        padding: "11px 14px",
+                        fontWeight: result?.schoolSubjectName ? 700 : 400,
+                        color: result?.schoolSubjectName ? T.ink : T.muted,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {result?.schoolSubjectName || "미입력"}
+                    </td>
+                    <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
+                      {scoreCell(result?.midtermScore)}
+                    </td>
+                    <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
+                      {scoreCell(result?.finalScore)}
+                    </td>
+                    <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
+                      {result?.grade || "미입력"}
+                    </td>
+                    <td style={{ padding: "11px 14px" }}>
+                      <Pill tone={student.status === "재원" ? "ok" : "muted"}>
+                        {student.status}
+                      </Pill>
+                    </td>
+                  </tr>
+                ));
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   );
 }
@@ -2227,7 +2547,7 @@ function AdminTerms({
           <div style={{ display: "flex", gap: 8 }}>
             <Btn onClick={submitNew} disabled={!name.trim()}>
               <Save size={16} />
-              만들기 (활성화)
+              만들기 (진행 시작)
             </Btn>
             <Btn variant="outline" onClick={() => setCreating(false)}>
               취소
@@ -2265,11 +2585,13 @@ function AdminTerms({
               </div>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
-              {!t.active && (
-                <Btn size="sm" variant="soft" onClick={() => onUpdate(t.id, { active: true })}>
-                  활성화
-                </Btn>
-              )}
+              <Btn
+                size="sm"
+                variant={t.active ? "outline" : "soft"}
+                onClick={() => onUpdate(t.id, { active: !t.active })}
+              >
+                {t.active ? "진행 종료" : "진행 시작"}
+              </Btn>
               <Btn size="sm" variant="outline" onClick={() => setEditing(t)}>
                 <Pencil size={14} />설정
               </Btn>
@@ -2317,9 +2639,13 @@ function TermSettingsForm({
   onSubmit: (patch: any) => Promise<void>;
 }) {
   const [name, setName] = useState(term.name);
-  const [subjects, setSubjects] = useState(term.subjects.join(", "));
+  const [subjects, setSubjects] = useState(term.subjects.join("\n"));
   const [dates, setDates] = useState<string[]>(term.clinicDates);
   const [newDate, setNewDate] = useState("");
+  const subjectDateEntries = Object.entries(
+    term.clinicDatesBySubject ?? {}
+  ).filter(([subject]) => term.subjects.includes(subject));
+  const hasSubjectDates = subjectDateEntries.length > 0;
 
   const addDate = () => {
     if (/^\d{4}-\d{2}-\d{2}$/.test(newDate) && !dates.includes(newDate)) {
@@ -2333,61 +2659,134 @@ function TermSettingsForm({
       <Field label="학기 이름">
         <input style={inputBase} value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
-      <Field label="반 (쉼표로 구분)">
+      <Field label="반 (한 줄에 하나)">
         <textarea
-          style={{ ...inputBase, minHeight: 60, resize: "vertical" }}
+          style={{
+            ...inputBase,
+            minHeight: 60,
+            resize: "vertical",
+            background: hasSubjectDates ? "#F1F4F8" : inputBase.background,
+            color: hasSubjectDates ? T.sub : inputBase.color,
+          }}
           value={subjects}
           onChange={(e) => setSubjects(e.target.value)}
-          placeholder="예: 고1 공수2, 고2 미적분1"
+          readOnly={hasSubjectDates}
+          placeholder={"예:\n고1 공수2\n고2 미적분1"}
         />
+        {hasSubjectDates && (
+          <div style={{ color: T.sub, fontSize: 12.5, marginTop: 6 }}>
+            과목별 일정과 학생 등록을 보호하기 위해 이 학기의 반 이름은 여기서
+            변경할 수 없습니다.
+          </div>
+        )}
       </Field>
-      <Field label={`클리닉 날짜 (${dates.length}일)`}>
-        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-          <input
-            type="date"
-            style={{ ...inputBase, flex: 1 }}
-            value={newDate}
-            onChange={(e) => setNewDate(e.target.value)}
-          />
-          <Btn variant="soft" onClick={addDate}>
-            <Plus size={15} />추가
-          </Btn>
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {dates.map((d) => (
-            <span
-              key={d}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 5,
-                padding: "5px 10px",
-                background: T.primarySoft,
-                color: T.primary,
-                borderRadius: 999,
-                fontSize: 12.5,
-                fontWeight: 700,
-              }}
-            >
-              {md(d)}
-              <button
-                onClick={() => setDates(dates.filter((x) => x !== d))}
-                style={{ border: "none", background: "transparent", cursor: "pointer", color: T.primary, display: "flex", padding: 0 }}
+      {hasSubjectDates ? (
+        <Field label="과목별 클리닉 날짜">
+          <div style={{ display: "grid", gap: 7 }}>
+            {subjectDateEntries.map(([subject, subjectDates]) => (
+              <details
+                key={subject}
+                style={{
+                  border: `1px solid ${T.line}`,
+                  borderRadius: 10,
+                  padding: "8px 10px",
+                  background: "#F8FAFD",
+                }}
               >
-                <Trash2 size={12} />
-              </button>
-            </span>
-          ))}
-        </div>
-      </Field>
+                <summary
+                  style={{ cursor: "pointer", color: T.ink, fontWeight: 700 }}
+                >
+                  {subject} · {subjectDates.length}일
+                </summary>
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 5,
+                    marginTop: 8,
+                  }}
+                >
+                  {subjectDates.map((subjectDate) => (
+                    <span
+                      key={subjectDate}
+                      style={{
+                        padding: "4px 8px",
+                        background: T.primarySoft,
+                        color: T.primary,
+                        borderRadius: 999,
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {md(subjectDate)}
+                    </span>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+          <div style={{ color: T.sub, fontSize: 12.5, marginTop: 8 }}>
+            과목별 일정이 적용되어 있습니다. 클리닉 현황에서 반을 선택하면 해당
+            수업 날짜만 표시됩니다.
+          </div>
+        </Field>
+      ) : (
+        <Field label={`클리닉 날짜 (${dates.length}일)`}>
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            <input
+              type="date"
+              style={{ ...inputBase, flex: 1 }}
+              value={newDate}
+              onChange={(e) => setNewDate(e.target.value)}
+            />
+            <Btn variant="soft" onClick={addDate}>
+              <Plus size={15} />추가
+            </Btn>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {dates.map((d) => (
+              <span
+                key={d}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "5px 10px",
+                  background: T.primarySoft,
+                  color: T.primary,
+                  borderRadius: 999,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                }}
+              >
+                {md(d)}
+                <button
+                  onClick={() => setDates(dates.filter((x) => x !== d))}
+                  style={{ border: "none", background: "transparent", cursor: "pointer", color: T.primary, display: "flex", padding: 0 }}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        </Field>
+      )}
       <Btn
-        onClick={() =>
-          onSubmit({
-            name,
-            subjects: subjects.split(",").map((x) => x.trim()).filter(Boolean),
-            clinicDates: dates,
-          })
-        }
+        onClick={() => {
+          const patch: Record<string, unknown> = { name };
+          if (!hasSubjectDates) {
+            patch.subjects = [
+              ...new Set(
+                subjects
+                  .split(/\r?\n/)
+                  .map((x) => x.trim())
+                  .filter(Boolean)
+              ),
+            ];
+            patch.clinicDates = dates;
+          }
+          onSubmit(patch);
+        }}
         style={{ width: "100%", justifyContent: "center" }}
       >
         <Save size={16} />저장
@@ -2456,6 +2855,8 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
   // 학기 선택 시: 명단·세션·만점 로드
   useEffect(() => {
     if (!termId) return;
+    let cancelled = false;
+    setErr("");
     setLoading(true);
     Promise.all([
       api.get(`/api/admin/roster?term=${termId}`),
@@ -2463,26 +2864,36 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
       api.get(`/api/admin/testconfig?term=${termId}`),
     ])
       .then(([st, se, tm]) => {
+        if (cancelled) return;
         setStudents(st);
         setSessions(se);
         setTestMax(tm.max ?? {});
         setTestDetail(tm.detail ?? {});
         setAdditionalMessages(tm.additionalMessage ?? {});
       })
-      .catch((e: any) => setErr(e.message || "데이터를 불러오지 못했습니다."))
-      .finally(() => setLoading(false));
+      .catch((e: any) => {
+        if (!cancelled) setErr(e.message || "데이터를 불러오지 못했습니다.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [termId]);
 
   // 실시간 반영: 학생 제출을 주기적으로(15초) 자동 새로고침.
   // 탭이 백그라운드거나, 방금 관리자가 입력 중이면(4초 내) 건너뛴다.
   useEffect(() => {
     if (!termId) return;
+    let cancelled = false;
     const id = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return;
       if (Date.now() - lastEditRef.current < 4000) return;
       api
         .get(`/api/admin/sessions?term=${termId}`)
         .then((se) => {
+          if (cancelled) return;
           // 새로고침 응답이 도착하는 사이에 관리자가 입력했으면 버린다.
           if (Date.now() - lastEditRef.current < 4000) return;
           setSessions(se);
@@ -2491,8 +2902,34 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
           /* 자동 새로고침 실패는 조용히 무시 */
         });
     }, 15000);
-    return () => clearInterval(id);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, [termId]);
+
+  // 학생이 입력한 학교 성적은 학교 성적 관리 탭에 주기적으로 반영한다.
+  useEffect(() => {
+    if (!termId || tab !== "schoolExams" || !term?.schoolExamInput) return;
+    let cancelled = false;
+    const refresh = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      api
+        .get(`/api/admin/roster?term=${termId}`)
+        .then((roster) => {
+          if (!cancelled) setStudents(roster);
+        })
+        .catch(() => {
+          /* 자동 새로고침 실패는 조용히 무시 */
+        });
+    };
+    refresh();
+    const id = setInterval(refresh, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [tab, termId, term?.schoolExamInput]);
 
   // 입력 중 표시(자동 새로고침 억제용). 키 입력마다 호출돼도 가볍게 ref 만 갱신.
   const markEditing = React.useCallback(() => {
@@ -2702,6 +3139,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
     { k: "quick", label: "테스트·과제", icon: <ClipboardCheck size={18} /> },
     { k: "weekly", label: "주간 안내 문자", icon: <Send size={18} /> },
     { k: "students", label: "학생 관리", icon: <Users size={18} /> },
+    { k: "schoolExams", label: "학교 성적 관리", icon: <FileText size={18} /> },
     { k: "responses", label: "응답 관리", icon: <Inbox size={18} /> },
     { k: "terms", label: "학기 관리", icon: <CalendarDays size={18} /> },
   ];
@@ -2781,6 +3219,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                   testDetail={testDetail}
                   additionalMessages={additionalMessages}
                   clinicDates={clinicDates}
+                  clinicDatesBySubject={term?.clinicDatesBySubject}
                   subjects={subjects}
                   onSetAdminFields={setAdminFields}
                   onSetTestMax={setTestMaxFor}
@@ -2796,6 +3235,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                   sessions={sessions}
                   testMax={testMax}
                   clinicDates={clinicDates}
+                  clinicDatesBySubject={term?.clinicDatesBySubject}
                   subjects={subjects}
                   onSetAdminFields={setAdminFields}
                   onSetTestMax={setTestMaxFor}
@@ -2811,13 +3251,22 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                   additionalMessages={additionalMessages}
                 />
               )}
-              {tab === "students" && (
+              {tab === "students" && term && (
                 <AdminStudents
+                  key={termId}
                   students={students}
                   subjects={subjects}
                   onAddStudent={addStudent}
                   onUpdateStudent={updateStudent}
                   onDeleteStudent={deleteStudent}
+                />
+              )}
+              {tab === "schoolExams" && term && (
+                <AdminSchoolExams
+                  key={termId}
+                  term={term}
+                  students={students}
+                  subjects={subjects}
                 />
               )}
               {tab === "responses" && (

@@ -6,6 +6,7 @@ import { serializeSession } from "@/lib/serialize";
 import { buildMaxMap } from "@/lib/testconfig";
 import { resolveTerm } from "@/lib/term";
 import { toDate } from "@/lib/date";
+import { getClinicDatesForSubject } from "@/lib/clinic-dates";
 
 export const dynamic = "force-dynamic";
 
@@ -38,8 +39,11 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const { date, subject } = body;
-  if (!date || !subject) {
-    return NextResponse.json({ error: "날짜와 과목은 필수입니다." }, { status: 400 });
+  if (!body.term || !date || !subject) {
+    return NextResponse.json(
+      { error: "학기·날짜·과목은 필수입니다." },
+      { status: 400 }
+    );
   }
 
   await dbConnect();
@@ -47,9 +51,37 @@ export async function POST(req: Request) {
   if (!term) return NextResponse.json({ error: "학기가 없습니다." }, { status: 400 });
 
   // 이 학기에 등록된 학생만 제출 가능
-  const enr = await Enrollment.findOne({ term: term._id, student: g.user.id }).lean();
+  const enr = await Enrollment.findOne({
+    term: term._id,
+    student: g.user.id,
+    status: "재원",
+  }).lean();
   if (!enr) {
-    return NextResponse.json({ error: "이 학기에 등록되어 있지 않습니다." }, { status: 403 });
+    return NextResponse.json(
+      { error: "이 학기에 재원 상태로 등록되어 있지 않습니다." },
+      { status: 403 }
+    );
+  }
+  if (!term.active) {
+    return NextResponse.json(
+      { error: "종료된 학기에는 새 응답을 제출할 수 없습니다." },
+      { status: 403 }
+    );
+  }
+  if (
+    !(enr.subjects ?? []).includes(subject) ||
+    !(term.subjects ?? []).includes(subject)
+  ) {
+    return NextResponse.json(
+      { error: "이 학기에 수강 중인 수업이 아닙니다." },
+      { status: 403 }
+    );
+  }
+  if (!getClinicDatesForSubject(term, subject).includes(date)) {
+    return NextResponse.json(
+      { error: "이 수업에 등록된 클리닉 날짜가 아닙니다." },
+      { status: 400 }
+    );
   }
 
   const studentFields = {

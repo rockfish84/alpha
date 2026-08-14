@@ -1,4 +1,5 @@
 import { isoDate } from "./date";
+import { serializeSchoolExamResults } from "./school-exams";
 
 /** Mongoose doc (lean or hydrated) -> plain client shape. */
 export function serializeStudent(doc: any) {
@@ -27,6 +28,8 @@ export function serializeRoster(enr: any, stu: any) {
     grade: (enr.grade ?? "") as string,
     subjects: (enr.subjects ?? []) as string[],
     status: (enr.status ?? "재원") as "재원" | "퇴원",
+    // 관리자 학교 성적 탭에서 조회할 학생의 학교 과목 목록.
+    schoolExamResults: serializeSchoolExamResults(enr.schoolExamResults),
   };
 }
 

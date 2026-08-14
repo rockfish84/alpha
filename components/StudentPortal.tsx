@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   LineChart,
   Line,
@@ -18,6 +18,8 @@ import {
   XCircle,
   Save,
   Trash2,
+  FileText,
+  Plus,
 } from "lucide-react";
 import {
   T,
@@ -30,6 +32,14 @@ import {
   type Me,
 } from "@/lib/constants";
 import { api } from "@/lib/api";
+import { getClinicDatesForSubject } from "@/lib/clinic-dates";
+import {
+  SCHOOL_EXAM_SUBJECTS,
+  SCHOOL_EXAM_GRADE_MAX_LENGTH,
+  SCHOOL_EXAM_MAX_COUNT,
+  SCHOOL_EXAM_NAME_MAX_LENGTH,
+  type SchoolExamResult,
+} from "@/lib/school-exams";
 import {
   Btn,
   Card,
@@ -582,6 +592,256 @@ function StudentStats({
   );
 }
 
+/* ============================== SCHOOL EXAMS ============================== */
+type SchoolExamDraft = {
+  schoolSubjectName: string;
+  midtermScore: string;
+  finalScore: string;
+  grade: string;
+};
+
+const blankSchoolExamDraft = (): SchoolExamDraft => ({
+  schoolSubjectName: "",
+  midtermScore: "",
+  finalScore: "",
+  grade: "",
+});
+
+const schoolExamDraft = (result: SchoolExamResult): SchoolExamDraft => ({
+  schoolSubjectName: result.schoolSubjectName,
+  midtermScore:
+    result.midtermScore == null ? "" : String(result.midtermScore),
+  finalScore: result.finalScore == null ? "" : String(result.finalScore),
+  grade: result.grade,
+});
+
+function SchoolExamEditor({
+  termId,
+  currentClasses,
+  initial,
+  onSaved,
+}: {
+  termId: string;
+  currentClasses: string[];
+  initial: SchoolExamResult[];
+  onSaved: (results: SchoolExamResult[]) => void;
+}) {
+  const [rows, setRows] = useState<SchoolExamDraft[]>(() =>
+    initial.length ? initial.map(schoolExamDraft) : [blankSchoolExamDraft()]
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const updateRow = (
+    index: number,
+    key: keyof SchoolExamDraft,
+    value: string
+  ) => {
+    setRows((previous) =>
+      previous.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, [key]: value } : row
+      )
+    );
+    setError("");
+    setSaved(false);
+  };
+
+  const parseScore = (label: string, value: string): number | null => {
+    if (!value.trim()) return null;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+      throw new Error(`${label}은(는) 0점부터 100점 사이로 입력해주세요.`);
+    }
+    return parsed;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setSaved(false);
+
+    let results: SchoolExamResult[];
+    try {
+      results = rows.map((row, index) => {
+        const schoolSubjectName = row.schoolSubjectName.trim();
+        if (!schoolSubjectName) {
+          throw new Error(`${index + 1}번째 학교 과목명을 입력해주세요.`);
+        }
+        return {
+          schoolSubjectName,
+          midtermScore: parseScore("중간고사 성적", row.midtermScore),
+          finalScore: parseScore("기말고사 성적", row.finalScore),
+          grade: row.grade.trim(),
+        };
+      });
+    } catch (validationError) {
+      setError(
+        validationError instanceof Error
+          ? validationError.message
+          : "성적을 확인해주세요."
+      );
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const savedResults = (await api.put("/api/school-exams", {
+        term: termId,
+        results,
+      })) as SchoolExamResult[];
+      setRows(savedResults.map(schoolExamDraft));
+      setSaved(true);
+      onSaved(savedResults);
+    } catch (saveError: any) {
+      setError(saveError.message || "성적 저장에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <Card style={{ padding: 16, marginBottom: 14, color: T.sub, fontSize: 13.5 }}>
+        현재 2학기 수강반: <b>{currentClasses.join(", ")}</b>
+      </Card>
+
+      <div style={{ display: "grid", gap: 14 }}>
+        {rows.map((row, index) => (
+          <Card key={index} style={{ padding: 20 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 10,
+                marginBottom: 14,
+              }}
+            >
+              <div style={{ fontSize: 16, fontWeight: 800, color: T.ink }}>
+                1학기 학교 과목 {index + 1}
+              </div>
+              <Btn
+                type="button"
+                size="xs"
+                variant="danger"
+                onClick={() => {
+                  setRows((previous) =>
+                    previous.filter((_, rowIndex) => rowIndex !== index)
+                  );
+                  setError("");
+                  setSaved(false);
+                }}
+              >
+                <Trash2 size={14} /> 삭제
+              </Btn>
+            </div>
+            <Field label="1학기 학교 과목명">
+              <input
+                type="text"
+                maxLength={SCHOOL_EXAM_NAME_MAX_LENGTH}
+                style={inputBase}
+                value={row.schoolSubjectName}
+                onChange={(e) =>
+                  updateRow(index, "schoolSubjectName", e.target.value)
+                }
+                placeholder="예: 수학Ⅰ, 수학Ⅱ, 확률과 통계"
+                aria-label={`${index + 1}번째 1학기 학교 과목명`}
+                required
+              />
+            </Field>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                gap: 12,
+              }}
+            >
+              <Field label="1학기 중간고사 성적">
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="any"
+                  inputMode="decimal"
+                  style={inputBase}
+                  value={row.midtermScore}
+                  onChange={(e) =>
+                    updateRow(index, "midtermScore", e.target.value)
+                  }
+                  placeholder="0~100"
+                />
+              </Field>
+              <Field label="1학기 기말고사 성적">
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="any"
+                  inputMode="decimal"
+                  style={inputBase}
+                  value={row.finalScore}
+                  onChange={(e) =>
+                    updateRow(index, "finalScore", e.target.value)
+                  }
+                  placeholder="0~100"
+                />
+              </Field>
+              <Field label="1학기 등급">
+                <input
+                  type="text"
+                  maxLength={SCHOOL_EXAM_GRADE_MAX_LENGTH}
+                  style={inputBase}
+                  value={row.grade}
+                  onChange={(e) => updateRow(index, "grade", e.target.value)}
+                  placeholder="예: 2"
+                />
+              </Field>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          flexWrap: "wrap",
+          marginTop: 14,
+        }}
+      >
+        <Btn
+          type="button"
+          variant="soft"
+          disabled={rows.length >= SCHOOL_EXAM_MAX_COUNT}
+          onClick={() => {
+            setRows((previous) => [...previous, blankSchoolExamDraft()]);
+            setError("");
+            setSaved(false);
+          }}
+        >
+          <Plus size={16} /> 과목 추가
+        </Btn>
+        <Btn type="submit" disabled={saving}>
+          <Save size={16} />
+          {saving ? "저장 중…" : "전체 성적 저장"}
+        </Btn>
+        {saved && (
+          <span role="status" style={{ color: T.ok, fontSize: 13, fontWeight: 700 }}>
+            <CheckCircle2 size={16} style={{ verticalAlign: "middle" }} /> 저장되었습니다
+          </span>
+        )}
+      </div>
+      {error && (
+        <div role="alert" style={{ color: T.bad, fontSize: 13, marginTop: 12 }}>
+          {error}
+        </div>
+      )}
+    </form>
+  );
+}
+
 /* ============================== PORTAL ============================== */
 export function StudentPortal({
   me,
@@ -594,22 +854,58 @@ export function StudentPortal({
   const [termId, setTermId] = useState(
     () => (terms.find((t) => t.active) ?? terms[0])?.id ?? ""
   );
+  const selectedTermIdRef = useRef(termId);
   const term = terms.find((t) => t.id === termId) ?? terms[0];
   const subjects = term?.subjects ?? [];
-  const clinicDates = term?.clinicDates ?? [];
+  const schoolExamClasses = useMemo(
+    () =>
+      term?.active && term.schoolExamInput
+        ? SCHOOL_EXAM_SUBJECTS.filter((examClass) =>
+            subjects.includes(examClass)
+          )
+        : [],
+    [subjects, term?.active, term?.schoolExamInput]
+  );
 
   const [tab, setTab] = useState("input");
   const [subject, setSubject] = useState(subjects[0] ?? "");
   const [date, setDate] = useState("");
+  const clinicDates = useMemo(
+    () => getClinicDatesForSubject(term, subject),
+    [term, subject]
+  );
   const [sessions, setSessions] = useState<ClinicSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
+  const [schoolExamOverrides, setSchoolExamOverrides] = useState<
+    Record<string, SchoolExamResult[]>
+  >({});
   const showToast = (msg: string) => setToast({ id: Date.now(), msg });
 
-  const reloadSessions = async () => {
-    if (!term) return;
-    setSessions(await api.get(`/api/sessions?term=${term.id}`));
+  useEffect(() => {
+    if (tab === "schoolExams" && schoolExamClasses.length === 0) {
+      setTab("input");
+    }
+  }, [tab, schoolExamClasses.length]);
+
+  // 과목을 바꾸면 그 수업에 실제로 열리는 날짜만 유지한다.
+  // 과목별 설정이 없는 기존 학기는 helper가 학기 공통 날짜로 폴백한다.
+  useEffect(() => {
+    setDate((currentDate) =>
+      clinicDates.includes(currentDate)
+        ? currentDate
+        : pickDefaultDate(clinicDates)
+    );
+  }, [clinicDates]);
+
+  const reloadSessions = async (requestedTermId: string) => {
+    const nextSessions = await api.get(
+      `/api/sessions?term=${requestedTermId}`
+    );
+    if (selectedTermIdRef.current !== requestedTermId) return false;
+    setSessions(nextSessions);
+    return true;
   };
 
   // 학기 변경 시: 과목·날짜 초기화 + 재조회
@@ -618,14 +914,26 @@ export function StudentPortal({
       setLoading(false);
       return;
     }
-    setSubject(term.subjects[0] ?? "");
-    setDate(pickDefaultDate(term.clinicDates));
+    let cancelled = false;
+    const nextSubject = term.subjects[0] ?? "";
+    setSubject(nextSubject);
+    setDate(pickDefaultDate(getClinicDatesForSubject(term, nextSubject)));
+    setErr("");
     setLoading(true);
     api
       .get(`/api/sessions?term=${term.id}`)
-      .then((s) => setSessions(s))
-      .catch((e: any) => setErr(e.message || "데이터를 불러오지 못했습니다."))
-      .finally(() => setLoading(false));
+      .then((s) => {
+        if (!cancelled) setSessions(s);
+      })
+      .catch((e: any) => {
+        if (!cancelled) setErr(e.message || "데이터를 불러오지 못했습니다.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [termId]);
 
@@ -635,8 +943,9 @@ export function StudentPortal({
 
   const handleSave = async (v: ClinicSession) => {
     if (!term) return;
+    const operationTermId = term.id;
     const payload = {
-      term: term.id,
+      term: operationTermId,
       date,
       subject,
       attendance: v.attendance,
@@ -656,18 +965,22 @@ export function StudentPortal({
       } else {
         await api.post("/api/sessions", payload);
       }
-      await reloadSessions();
-      showToast(isEdit ? "수정이 완료되었습니다" : "제출이 완료되었습니다");
+      if (await reloadSessions(operationTermId)) {
+        showToast(isEdit ? "수정이 완료되었습니다" : "제출이 완료되었습니다");
+      }
     } catch (e: any) {
       alert(e.message || "저장에 실패했습니다.");
     }
   };
 
   const handleDelete = async (id: string) => {
+    if (!term) return;
+    const operationTermId = term.id;
     try {
       await api.del(`/api/sessions/${id}`);
-      await reloadSessions();
-      showToast("삭제되었습니다");
+      if (await reloadSessions(operationTermId)) {
+        showToast("삭제되었습니다");
+      }
     } catch (e: any) {
       alert(e.message || "삭제에 실패했습니다.");
     }
@@ -675,9 +988,29 @@ export function StudentPortal({
 
   const NAV: NavItem[] = [
     { k: "input", label: "클리닉 입력", icon: <ClipboardList size={18} /> },
+    ...(schoolExamClasses.length
+      ? [
+          {
+            k: "schoolExams",
+            label: "1학기 성적 입력",
+            icon: <FileText size={18} />,
+          },
+        ]
+      : []),
     { k: "history", label: "내 이력", icon: <History size={18} /> },
     { k: "stats", label: "통계", icon: <TrendingUp size={18} /> },
   ];
+
+  const handleSchoolExamSaved = (
+    savedTermId: string,
+    results: SchoolExamResult[]
+  ) => {
+    setSchoolExamOverrides((previous) => ({
+      ...previous,
+      [savedTermId]: results,
+    }));
+    showToast("1학기 학교 성적이 저장되었습니다");
+  };
 
   // 학기 선택 바
   const termBar = terms.length > 0 && (
@@ -694,7 +1027,10 @@ export function StudentPortal({
       <select
         style={{ ...inputBase, width: "auto", minWidth: 180, padding: "8px 12px" }}
         value={termId}
-        onChange={(e) => setTermId(e.target.value)}
+        onChange={(e) => {
+          selectedTermIdRef.current = e.target.value;
+          setTermId(e.target.value);
+        }}
       >
         {terms.map((t) => (
           <option key={t.id} value={t.id}>
@@ -768,18 +1104,31 @@ export function StudentPortal({
                         <div style={{ fontSize: 12.5, fontWeight: 700, color: T.sub, marginBottom: 6 }}>
                           클리닉 날짜
                         </div>
-                        <select style={inputBase} value={date} onChange={(e) => setDate(e.target.value)}>
-                          {clinicDates.map((d) => (
-                            <option key={d} value={d}>
-                              {md(d)}
-                            </option>
-                          ))}
+                        <select
+                          style={inputBase}
+                          value={date}
+                          disabled={clinicDates.length === 0}
+                          onChange={(e) => setDate(e.target.value)}
+                        >
+                          {clinicDates.length === 0 ? (
+                            <option value="">등록된 날짜 없음</option>
+                          ) : (
+                            clinicDates.map((d) => (
+                              <option key={d} value={d}>
+                                {md(d)}
+                              </option>
+                            ))
+                          )}
                         </select>
                       </div>
                     </div>
                   </Card>
 
-                  {current?.submitted ? (
+                  {!date ? (
+                    <Card style={{ padding: 20, color: T.sub, fontSize: 14 }}>
+                      선택한 과목에 등록된 클리닉 날짜가 없습니다.
+                    </Card>
+                  ) : current?.submitted ? (
                     <Card style={{ padding: 20 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, color: T.ok, fontWeight: 700, fontSize: 14 }}>
                         <CheckCircle2 size={18} /> {md(date)} 응답이 제출되었습니다. 자유롭게 수정하거나 삭제할 수 있어요.
@@ -820,6 +1169,32 @@ export function StudentPortal({
               setSubject={setSubject}
               subjects={subjects}
             />
+          )}
+          {tab === "schoolExams" && schoolExamClasses.length > 0 && term && (
+            <div style={{ maxWidth: 860 }}>
+              <SectionTitle>1학기 성적 입력</SectionTitle>
+              <Card
+                style={{
+                  padding: 16,
+                  marginBottom: 16,
+                  color: T.sub,
+                  fontSize: 13.5,
+                  lineHeight: 1.6,
+                }}
+              >
+                1학기에 학교에서 실제로 수강한 과목을 모두 추가하고, 각 과목의
+                중간·기말고사 성적과 등급을 입력해주세요.
+              </Card>
+              <SchoolExamEditor
+                key={term.id}
+                termId={term.id}
+                currentClasses={schoolExamClasses}
+                initial={
+                  schoolExamOverrides[term.id] ?? term.schoolExamResults ?? []
+                }
+                onSaved={(results) => handleSchoolExamSaved(term.id, results)}
+              />
+            </div>
           )}
         </>
       )}
