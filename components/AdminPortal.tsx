@@ -28,6 +28,10 @@ import {
 } from "@/lib/constants";
 import { api } from "@/lib/api";
 import { getClinicDatesForSubject } from "@/lib/clinic-dates";
+import {
+  normalizeClosedSubjects,
+  visibleSubjects,
+} from "@/lib/subject-status";
 import { isSchoolExamSubject } from "@/lib/school-exams";
 import {
   Btn,
@@ -70,7 +74,7 @@ const LS_DATE = "dubco:admin:date";
 // 저장된 과목/날짜를 복원하되, 현재 학기에 없는 값이면 기본값으로.
 function restoreSubject(subjects: string[]): string {
   const saved = ls.get(LS_SUBJECT);
-  return saved && subjects.includes(saved) ? saved : subjects[0];
+  return saved && subjects.includes(saved) ? saved : subjects[0] ?? "";
 }
 function restoreDate(clinicDates: string[]): string {
   const saved = ls.get(LS_DATE);
@@ -702,6 +706,7 @@ function AdminBoard({
   clinicDates,
   clinicDatesBySubject,
   subjects,
+  closedSubjects,
   onSetAdminFields,
   onSetTestMax,
   onSetTestDetail,
@@ -716,6 +721,7 @@ function AdminBoard({
   clinicDates: string[];
   clinicDatesBySubject?: Record<string, string[]>;
   subjects: string[];
+  closedSubjects?: string[];
   onSetAdminFields: (
     studentId: string,
     date: string,
@@ -731,7 +737,22 @@ function AdminBoard({
   onSetAdditionalMessage: (date: string, subject: string, str: string) => void;
   onEditing: () => void;
 }) {
-  const [subject, setSubject] = useState(() => restoreSubject(subjects));
+  // 종료된 반은 기본으로 숨긴다. 지난 기록 확인이 필요하면 토글로 다시 꺼낸다.
+  const [showClosed, setShowClosed] = useState(false);
+  const closedList = useMemo(
+    () => normalizeClosedSubjects(closedSubjects, subjects),
+    [closedSubjects, subjects]
+  );
+  const pickable = useMemo(
+    () => visibleSubjects({ subjects, closedSubjects }, showClosed),
+    [subjects, closedSubjects, showClosed]
+  );
+  const [subject, setSubject] = useState(() => restoreSubject(pickable));
+  useEffect(() => {
+    setSubject((current) =>
+      pickable.includes(current) ? current : pickable[0] ?? ""
+    );
+  }, [pickable]);
   const subjectClinicDates = useMemo(
     () =>
       getClinicDatesForSubject(
@@ -828,11 +849,18 @@ function AdminBoard({
             <select
               style={inputBase}
               value={subject}
+              disabled={!pickable.length}
               onChange={(e) => setSubject(e.target.value)}
             >
-              {subjects.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
+              {pickable.length ? (
+                pickable.map((s) => (
+                  <option key={s} value={s}>
+                    {closedList.includes(s) ? `${s} (종료)` : s}
+                  </option>
+                ))
+              ) : (
+                <option value="">진행 중인 수업 없음</option>
+              )}
             </select>
           </div>
           <div style={{ minWidth: 130 }}>
@@ -879,6 +907,26 @@ function AdminBoard({
             />{" "}
             퇴원생 포함
           </label>
+          {closedList.length > 0 && (
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                fontSize: 13.5,
+                color: T.sub,
+                marginBottom: 10,
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={showClosed}
+                onChange={(e) => setShowClosed(e.target.checked)}
+              />{" "}
+              종료 수업 포함
+            </label>
+          )}
         </div>
         <div
           style={{
@@ -997,7 +1045,9 @@ function AdminBoard({
                     <Empty
                       icon={<Users size={28} />}
                       text={
-                        hasClinicDate
+                        !subject
+                          ? "진행 중인 수업이 없습니다"
+                          : hasClinicDate
                           ? "해당 과목 학생이 없습니다"
                           : "해당 과목에 등록된 클리닉 날짜가 없습니다"
                       }
@@ -1151,6 +1201,7 @@ function AdminQuickGrade({
   clinicDates,
   clinicDatesBySubject,
   subjects,
+  closedSubjects,
   onSetAdminFields,
   onSetTestMax,
   onEditing,
@@ -1161,6 +1212,7 @@ function AdminQuickGrade({
   clinicDates: string[];
   clinicDatesBySubject?: Record<string, string[]>;
   subjects: string[];
+  closedSubjects?: string[];
   onSetAdminFields: (
     studentId: string,
     date: string,
@@ -1170,7 +1222,22 @@ function AdminQuickGrade({
   onSetTestMax: (date: string, subject: string, val: number | null) => void;
   onEditing: () => void;
 }) {
-  const [subject, setSubject] = useState(() => restoreSubject(subjects));
+  // 종료된 반은 기본으로 숨긴다. 지난 기록 확인이 필요하면 토글로 다시 꺼낸다.
+  const [showClosed, setShowClosed] = useState(false);
+  const closedList = useMemo(
+    () => normalizeClosedSubjects(closedSubjects, subjects),
+    [closedSubjects, subjects]
+  );
+  const pickable = useMemo(
+    () => visibleSubjects({ subjects, closedSubjects }, showClosed),
+    [subjects, closedSubjects, showClosed]
+  );
+  const [subject, setSubject] = useState(() => restoreSubject(pickable));
+  useEffect(() => {
+    setSubject((current) =>
+      pickable.includes(current) ? current : pickable[0] ?? ""
+    );
+  }, [pickable]);
   const subjectClinicDates = useMemo(
     () =>
       getClinicDatesForSubject(
@@ -1240,10 +1307,21 @@ function AdminQuickGrade({
           </div>
           <div style={{ flex: 1, minWidth: 110 }}>
             <div style={lbl}>과목</div>
-            <select style={inputBase} value={subject} onChange={(e) => setSubject(e.target.value)}>
-              {subjects.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
+            <select
+              style={inputBase}
+              value={subject}
+              disabled={!pickable.length}
+              onChange={(e) => setSubject(e.target.value)}
+            >
+              {pickable.length ? (
+                pickable.map((s) => (
+                  <option key={s} value={s}>
+                    {closedList.includes(s) ? `${s} (종료)` : s}
+                  </option>
+                ))
+              ) : (
+                <option value="">진행 중인 수업 없음</option>
+              )}
             </select>
           </div>
           <div style={{ width: 110 }}>
@@ -1273,6 +1351,26 @@ function AdminQuickGrade({
             <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />{" "}
             퇴원생
           </label>
+          {closedList.length > 0 && (
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 13.5,
+                color: T.sub,
+                marginBottom: 10,
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={showClosed}
+                onChange={(e) => setShowClosed(e.target.checked)}
+              />{" "}
+              종료 수업
+            </label>
+          )}
         </div>
       </Card>
 
@@ -1281,7 +1379,9 @@ function AdminQuickGrade({
           <Empty
             icon={<Users size={28} />}
             text={
-              hasClinicDate
+              !subject
+                ? "진행 중인 수업이 없습니다"
+                : hasClinicDate
                 ? "해당 과목 학생이 없습니다"
                 : "해당 과목에 등록된 클리닉 날짜가 없습니다"
             }
@@ -1311,10 +1411,12 @@ type EditStudent = Partial<Student> & { password?: string };
 function StudentForm({
   init,
   subjects,
+  closedSubjects,
   onSubmit,
 }: {
   init: EditStudent;
   subjects: string[];
+  closedSubjects?: string[];
   onSubmit: (v: EditStudent) => void;
 }) {
   // 과목은 학기 과목 목록에서만 선택 → 쉼표 포함 과목명("공수1,2 심화")도 정확히 선택되고
@@ -1405,6 +1507,7 @@ function StudentForm({
                 >
                   {active ? "✓ " : ""}
                   {sub}
+                  {(closedSubjects ?? []).includes(sub) ? " (종료)" : ""}
                 </button>
               );
             })}
@@ -1426,12 +1529,14 @@ function StudentForm({
 function AdminStudents({
   students,
   subjects,
+  closedSubjects,
   onAddStudent,
   onUpdateStudent,
   onDeleteStudent,
 }: {
   students: Student[];
   subjects: string[];
+  closedSubjects?: string[];
   onAddStudent: (v: EditStudent) => void;
   onUpdateStudent: (id: string, patch: EditStudent) => void;
   onDeleteStudent: (id: string) => void;
@@ -1539,7 +1644,8 @@ function AdminStudents({
                 whiteSpace: "nowrap",
               }}
             >
-              {sub}{" "}
+              {sub}
+              {(closedSubjects ?? []).includes(sub) ? " (종료)" : ""}{" "}
               <span style={{ opacity: 0.7, fontWeight: 600 }}>{cnt}</span>
             </button>
           );
@@ -1679,6 +1785,7 @@ function AdminStudents({
           <StudentForm
             init={editing}
             subjects={subjects}
+            closedSubjects={closedSubjects}
             onSubmit={(v) => {
               if (editing.enrollmentId) onUpdateStudent(editing.enrollmentId, v);
               else onAddStudent(v);
@@ -2582,6 +2689,9 @@ function AdminTerms({
               </div>
               <div style={{ fontSize: 12.5, color: T.muted, marginTop: 3 }}>
                 반 {t.subjects.length}개 · 클리닉 {t.clinicDates.length}일
+                {t.closedSubjects && t.closedSubjects.length > 0
+                  ? ` · 종료된 반 ${t.closedSubjects.length}개`
+                  : ""}
               </div>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
@@ -2631,6 +2741,36 @@ function AdminTerms({
   );
 }
 
+type SubjectRow = { subject: string; dates: string[]; closed: boolean };
+
+/** 설정 폼 초기 행. 과목별 일정이 아직 없는 기존 학기는 학기 공통 날짜를 그대로 물려받는다. */
+function buildSubjectRows(term: TermInfo): SubjectRow[] {
+  const bySubject = term.clinicDatesBySubject ?? {};
+  const hasSubjectDates = term.subjects.some((s) =>
+    Object.prototype.hasOwnProperty.call(bySubject, s)
+  );
+  const closed = new Set(term.closedSubjects ?? []);
+  return term.subjects.map((subject) => ({
+    subject,
+    dates: [
+      ...(bySubject[subject] ?? (hasSubjectDates ? [] : term.clinicDates)),
+    ].sort(),
+    closed: closed.has(subject),
+  }));
+}
+
+const dateChip: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 5,
+  padding: "5px 10px",
+  background: T.primarySoft,
+  color: T.primary,
+  borderRadius: 999,
+  fontSize: 12.5,
+  fontWeight: 700,
+};
+
 function TermSettingsForm({
   term,
   onSubmit,
@@ -2639,157 +2779,226 @@ function TermSettingsForm({
   onSubmit: (patch: any) => Promise<void>;
 }) {
   const [name, setName] = useState(term.name);
-  const [subjects, setSubjects] = useState(term.subjects.join("\n"));
-  const [dates, setDates] = useState<string[]>(term.clinicDates);
-  const [newDate, setNewDate] = useState("");
-  const subjectDateEntries = Object.entries(
-    term.clinicDatesBySubject ?? {}
-  ).filter(([subject]) => term.subjects.includes(subject));
-  const hasSubjectDates = subjectDateEntries.length > 0;
+  // 반 목록 · 반별 클리닉 날짜 · 반별 진행/종료를 한 화면에서 관리한다.
+  const [rows, setRows] = useState<SubjectRow[]>(() => buildSubjectRows(term));
+  const [newSubject, setNewSubject] = useState("");
+  const [dateDraft, setDateDraft] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
-  const addDate = () => {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(newDate) && !dates.includes(newDate)) {
-      setDates([...dates, newDate].sort());
-      setNewDate("");
+  const patchRow = (subject: string, patch: Partial<SubjectRow>) =>
+    setRows((p) =>
+      p.map((r) => (r.subject === subject ? { ...r, ...patch } : r))
+    );
+
+  const addDate = (row: SubjectRow) => {
+    const d = (dateDraft[row.subject] ?? "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || row.dates.includes(d)) return;
+    patchRow(row.subject, { dates: [...row.dates, d].sort() });
+    setDateDraft((p) => ({ ...p, [row.subject]: "" }));
+  };
+
+  const addSubject = () => {
+    const s = newSubject.trim();
+    if (!s || rows.some((r) => r.subject === s)) return;
+    setRows((p) => [...p, { subject: s, dates: [], closed: false }]);
+    setNewSubject("");
+  };
+
+  const removeSubject = (row: SubjectRow) => {
+    if (
+      !window.confirm(
+        `'${row.subject}' 반을 이 학기에서 빼고 이 반의 클리닉 날짜도 지울까요? (이미 쌓인 기록은 남습니다)`
+      )
+    )
+      return;
+    setRows((p) => p.filter((r) => r.subject !== row.subject));
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const patch: Record<string, unknown> = {
+        name,
+        subjects: rows.map((r) => r.subject),
+        closedSubjects: rows.filter((r) => r.closed).map((r) => r.subject),
+      };
+      // 반이 하나도 없으면 학기 공통 날짜는 건드리지 않는다.
+      if (rows.length) {
+        patch.clinicDatesBySubject = Object.fromEntries(
+          rows.map((r) => [r.subject, r.dates])
+        );
+      }
+      await onSubmit(patch);
+    } finally {
+      setSaving(false);
     }
   };
+
+  const openCnt = rows.filter((r) => !r.closed).length;
 
   return (
     <div>
       <Field label="학기 이름">
-        <input style={inputBase} value={name} onChange={(e) => setName(e.target.value)} />
-      </Field>
-      <Field label="반 (한 줄에 하나)">
-        <textarea
-          style={{
-            ...inputBase,
-            minHeight: 60,
-            resize: "vertical",
-            background: hasSubjectDates ? "#F1F4F8" : inputBase.background,
-            color: hasSubjectDates ? T.sub : inputBase.color,
-          }}
-          value={subjects}
-          onChange={(e) => setSubjects(e.target.value)}
-          readOnly={hasSubjectDates}
-          placeholder={"예:\n고1 공수2\n고2 미적분1"}
+        <input
+          style={inputBase}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
         />
-        {hasSubjectDates && (
-          <div style={{ color: T.sub, fontSize: 12.5, marginTop: 6 }}>
-            과목별 일정과 학생 등록을 보호하기 위해 이 학기의 반 이름은 여기서
-            변경할 수 없습니다.
-          </div>
-        )}
       </Field>
-      {hasSubjectDates ? (
-        <Field label="과목별 클리닉 날짜">
-          <div style={{ display: "grid", gap: 7 }}>
-            {subjectDateEntries.map(([subject, subjectDates]) => (
+
+      <Field
+        label={`반별 진행 상태 · 클리닉 날짜 (진행 ${openCnt} · 종료 ${
+          rows.length - openCnt
+        })`}
+      >
+        {rows.length === 0 ? (
+          <div style={{ color: T.muted, fontSize: 13 }}>
+            등록된 반이 없습니다. 아래에서 반을 추가하세요.
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {rows.map((row) => (
               <details
-                key={subject}
+                key={row.subject}
                 style={{
                   border: `1px solid ${T.line}`,
                   borderRadius: 10,
-                  padding: "8px 10px",
-                  background: "#F8FAFD",
+                  padding: "9px 11px",
+                  background: row.closed ? "#F4F6F9" : "#F8FAFD",
                 }}
               >
-                <summary
-                  style={{ cursor: "pointer", color: T.ink, fontWeight: 700 }}
-                >
-                  {subject} · {subjectDates.length}일
+                <summary style={{ cursor: "pointer" }}>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 7,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <b style={{ color: row.closed ? T.sub : T.ink, fontSize: 14 }}>
+                      {row.subject}
+                    </b>
+                    <Pill tone={row.closed ? "muted" : "ok"}>
+                      {row.closed ? "종료" : "진행중"}
+                    </Pill>
+                    <span style={{ color: T.muted, fontSize: 12.5, fontWeight: 600 }}>
+                      클리닉 {row.dates.length}일
+                    </span>
+                  </span>
                 </summary>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    flexWrap: "wrap",
+                    marginTop: 10,
+                  }}
+                >
+                  <Btn
+                    size="sm"
+                    variant={row.closed ? "soft" : "outline"}
+                    onClick={() => patchRow(row.subject, { closed: !row.closed })}
+                  >
+                    {row.closed ? "진행 시작" : "진행 종료"}
+                  </Btn>
+                  <Btn size="sm" variant="danger" onClick={() => removeSubject(row)}>
+                    <Trash2 size={14} />반 삭제
+                  </Btn>
+                </div>
+
+                <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                  <input
+                    type="date"
+                    style={{ ...inputBase, flex: 1 }}
+                    value={dateDraft[row.subject] ?? ""}
+                    onChange={(e) =>
+                      setDateDraft((p) => ({ ...p, [row.subject]: e.target.value }))
+                    }
+                  />
+                  <Btn variant="soft" onClick={() => addDate(row)}>
+                    <Plus size={15} />추가
+                  </Btn>
+                </div>
+
                 <div
                   style={{
                     display: "flex",
                     flexWrap: "wrap",
-                    gap: 5,
+                    gap: 6,
                     marginTop: 8,
                   }}
                 >
-                  {subjectDates.map((subjectDate) => (
-                    <span
-                      key={subjectDate}
-                      style={{
-                        padding: "4px 8px",
-                        background: T.primarySoft,
-                        color: T.primary,
-                        borderRadius: 999,
-                        fontSize: 12,
-                        fontWeight: 700,
-                      }}
-                    >
-                      {md(subjectDate)}
+                  {row.dates.length === 0 ? (
+                    <span style={{ color: T.muted, fontSize: 12.5 }}>
+                      등록된 날짜가 없습니다.
                     </span>
-                  ))}
+                  ) : (
+                    row.dates.map((d) => (
+                      <span key={d} style={dateChip}>
+                        {md(d)}
+                        <button
+                          onClick={() =>
+                            patchRow(row.subject, {
+                              dates: row.dates.filter((x) => x !== d),
+                            })
+                          }
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            cursor: "pointer",
+                            color: T.primary,
+                            display: "flex",
+                            padding: 0,
+                          }}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </span>
+                    ))
+                  )}
                 </div>
               </details>
             ))}
           </div>
-          <div style={{ color: T.sub, fontSize: 12.5, marginTop: 8 }}>
-            과목별 일정이 적용되어 있습니다. 클리닉 현황에서 반을 선택하면 해당
-            수업 날짜만 표시됩니다.
-          </div>
-        </Field>
-      ) : (
-        <Field label={`클리닉 날짜 (${dates.length}일)`}>
-          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-            <input
-              type="date"
-              style={{ ...inputBase, flex: 1 }}
-              value={newDate}
-              onChange={(e) => setNewDate(e.target.value)}
-            />
-            <Btn variant="soft" onClick={addDate}>
-              <Plus size={15} />추가
-            </Btn>
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {dates.map((d) => (
-              <span
-                key={d}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  padding: "5px 10px",
-                  background: T.primarySoft,
-                  color: T.primary,
-                  borderRadius: 999,
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                }}
-              >
-                {md(d)}
-                <button
-                  onClick={() => setDates(dates.filter((x) => x !== d))}
-                  style={{ border: "none", background: "transparent", cursor: "pointer", color: T.primary, display: "flex", padding: 0 }}
-                >
-                  <Trash2 size={12} />
-                </button>
-              </span>
-            ))}
-          </div>
-        </Field>
-      )}
+        )}
+        <div style={{ color: T.sub, fontSize: 12.5, marginTop: 8 }}>
+          종료한 반은 클리닉 현황·테스트/과제와 학생 입력 화면에서 사라지고,
+          학생은 그 반에 새 응답을 제출할 수 없습니다. 쌓인 기록은 그대로 남습니다.
+        </div>
+      </Field>
+
+      <Field label="반 추가">
+        <div style={{ display: "flex", gap: 6 }}>
+          <input
+            style={{ ...inputBase, flex: 1 }}
+            value={newSubject}
+            placeholder="예: 고1 공수2"
+            onChange={(e) => setNewSubject(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addSubject();
+              }
+            }}
+          />
+          <Btn variant="soft" onClick={addSubject} disabled={!newSubject.trim()}>
+            <Plus size={15} />추가
+          </Btn>
+        </div>
+        <div style={{ color: T.sub, fontSize: 12.5, marginTop: 6 }}>
+          반 이름은 학생 등록·기록과 연결되어 있어 여기서 바꿀 수 없습니다.
+        </div>
+      </Field>
+
       <Btn
-        onClick={() => {
-          const patch: Record<string, unknown> = { name };
-          if (!hasSubjectDates) {
-            patch.subjects = [
-              ...new Set(
-                subjects
-                  .split(/\r?\n/)
-                  .map((x) => x.trim())
-                  .filter(Boolean)
-              ),
-            ];
-            patch.clinicDates = dates;
-          }
-          onSubmit(patch);
-        }}
+        onClick={save}
+        disabled={saving}
         style={{ width: "100%", justifyContent: "center" }}
       >
-        <Save size={16} />저장
+        <Save size={16} />
+        {saving ? "저장 중…" : "저장"}
       </Btn>
     </div>
   );
@@ -3221,6 +3430,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                   clinicDates={clinicDates}
                   clinicDatesBySubject={term?.clinicDatesBySubject}
                   subjects={subjects}
+                  closedSubjects={term?.closedSubjects}
                   onSetAdminFields={setAdminFields}
                   onSetTestMax={setTestMaxFor}
                   onSetTestDetail={setTestDetailFor}
@@ -3237,6 +3447,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                   clinicDates={clinicDates}
                   clinicDatesBySubject={term?.clinicDatesBySubject}
                   subjects={subjects}
+                  closedSubjects={term?.closedSubjects}
                   onSetAdminFields={setAdminFields}
                   onSetTestMax={setTestMaxFor}
                   onEditing={markEditing}
@@ -3256,6 +3467,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                   key={termId}
                   students={students}
                   subjects={subjects}
+                  closedSubjects={term?.closedSubjects}
                   onAddStudent={addStudent}
                   onUpdateStudent={updateStudent}
                   onDeleteStudent={deleteStudent}

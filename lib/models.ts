@@ -15,6 +15,8 @@ const TermSchema = new Schema(
     clinicDates: { type: [String], default: [] }, // 이 학기의 클리닉 날짜
     // 과목별 클리닉 날짜. 키가 없는 기존 학기는 clinicDates를 공통 일정으로 사용한다.
     clinicDatesBySubject: { type: Map, of: [String], default: {} },
+    // 학기 안에서 먼저 종료한 반. 종료된 반은 클리닉 현황·테스트/과제·학생 입력에서 숨긴다.
+    closedSubjects: { type: [String], default: [] },
     active: { type: Boolean, default: false }, // 진행 중인 학기 (여러 학기 동시 진행 가능)
     schoolExamInput: { type: Boolean, default: false }, // 학생 1학기 학교 성적 입력 기능
     order: { type: Number, default: 0 }, // 정렬용 (클수록 최신)

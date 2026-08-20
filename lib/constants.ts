@@ -92,6 +92,7 @@ export interface TermInfo {
   clinicDates: string[];
   clinicDatesBySubject?: Record<string, string[]>;
   subjects: string[];
+  closedSubjects?: string[]; // 종료 처리된 반 (학기는 진행중이어도 이 반만 종료)
   grade?: string; // 학생 포털: 이 학기 내 학년
   startDate?: string;
   endDate?: string;

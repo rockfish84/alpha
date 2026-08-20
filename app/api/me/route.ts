@@ -47,6 +47,7 @@ export async function GET() {
       schoolExamInput: st.schoolExamInput,
       clinicDates: st.clinicDates,
       clinicDatesBySubject: st.clinicDatesBySubject,
+      closedSubjects: st.closedSubjects,
       grade: (enr?.grade ?? "") as string,
       subjects: (enr?.subjects ?? []) as string[],
       schoolExamResults:

@@ -8,6 +8,7 @@ import {
   normalizeClinicDates,
   normalizeClinicDatesBySubject,
 } from "@/lib/clinic-dates";
+import { normalizeClosedSubjects } from "@/lib/subject-status";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +74,8 @@ export async function POST(req: Request) {
     subjects,
     clinicDates,
     clinicDatesBySubject,
+    // 복사해 만든 학기라도 반은 모두 진행 상태로 시작한다.
+    closedSubjects: normalizeClosedSubjects(body.closedSubjects, subjects),
     order,
     // 여름학기와 정규학기처럼 여러 학기를 동시에 운영할 수 있다.
     active: !!activate,

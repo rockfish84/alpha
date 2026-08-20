@@ -8,6 +8,7 @@ import {
   normalizeClinicDates,
   normalizeClinicDatesBySubject,
 } from "@/lib/clinic-dates";
+import { normalizeClosedSubjects } from "@/lib/subject-status";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +63,20 @@ export async function PATCH(
     } else if (Array.isArray(body.clinicDates)) {
       term.clinicDates = normalizeClinicDates(body.clinicDates);
     }
+  }
+
+  // 반별 종료. 학기가 진행중이어도 끝난 반만 먼저 닫을 수 있다.
+  if (body.closedSubjects !== undefined) {
+    term.closedSubjects = normalizeClosedSubjects(
+      body.closedSubjects,
+      term.subjects
+    );
+  } else if (Array.isArray(body.subjects)) {
+    // 반이 사라졌으면 그 반의 종료 표시도 함께 정리한다.
+    term.closedSubjects = normalizeClosedSubjects(
+      term.closedSubjects,
+      term.subjects
+    );
   }
 
   // 진행 학기는 서로 배타적이지 않다. 학기별로 시작/종료한다.

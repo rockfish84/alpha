@@ -1,5 +1,6 @@
 import { Term } from "./models";
 import { normalizeClinicDatesBySubject } from "./clinic-dates";
+import { normalizeClosedSubjects } from "./subject-status";
 
 /** 진행 중인 학기 중 가장 최신 학기 (없으면 전체에서 가장 최신). */
 export async function getActiveTerm() {
@@ -34,6 +35,10 @@ export function serializeTerm(t: any) {
     clinicDates: ((t.clinicDates ?? []) as string[]).slice().sort(),
     clinicDatesBySubject: normalizeClinicDatesBySubject(
       t.clinicDatesBySubject,
+      (t.subjects ?? []) as string[]
+    ),
+    closedSubjects: normalizeClosedSubjects(
+      t.closedSubjects,
       (t.subjects ?? []) as string[]
     ),
     active: !!t.active,

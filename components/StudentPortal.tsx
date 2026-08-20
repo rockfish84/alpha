@@ -33,6 +33,7 @@ import {
 } from "@/lib/constants";
 import { api } from "@/lib/api";
 import { getClinicDatesForSubject } from "@/lib/clinic-dates";
+import { openSubjects } from "@/lib/subject-status";
 import {
   SCHOOL_EXAM_SUBJECTS,
   SCHOOL_EXAM_GRADE_MAX_LENGTH,
@@ -857,6 +858,8 @@ export function StudentPortal({
   const selectedTermIdRef = useRef(termId);
   const term = terms.find((t) => t.id === termId) ?? terms[0];
   const subjects = term?.subjects ?? [];
+  // 종료된 반은 새 입력을 받지 않는다. (이력·통계에서는 계속 볼 수 있다)
+  const inputSubjects = useMemo(() => openSubjects(term), [term]);
   const schoolExamClasses = useMemo(
     () =>
       term?.active && term.schoolExamInput
@@ -868,7 +871,9 @@ export function StudentPortal({
   );
 
   const [tab, setTab] = useState("input");
-  const [subject, setSubject] = useState(subjects[0] ?? "");
+  const [subject, setSubject] = useState(
+    () => openSubjects(term)[0] ?? subjects[0] ?? ""
+  );
   const [date, setDate] = useState("");
   const clinicDates = useMemo(
     () => getClinicDatesForSubject(term, subject),
@@ -888,6 +893,14 @@ export function StudentPortal({
       setTab("input");
     }
   }, [tab, schoolExamClasses.length]);
+
+  // 이력·통계에서 종료된 반을 보다가 입력 탭으로 오면 진행 중인 반으로 되돌린다.
+  useEffect(() => {
+    if (tab !== "input" || inputSubjects.length === 0) return;
+    setSubject((current) =>
+      inputSubjects.includes(current) ? current : inputSubjects[0]
+    );
+  }, [tab, inputSubjects]);
 
   // 과목을 바꾸면 그 수업에 실제로 열리는 날짜만 유지한다.
   // 과목별 설정이 없는 기존 학기는 helper가 학기 공통 날짜로 폴백한다.
@@ -915,7 +928,7 @@ export function StudentPortal({
       return;
     }
     let cancelled = false;
-    const nextSubject = term.subjects[0] ?? "";
+    const nextSubject = openSubjects(term)[0] ?? term.subjects[0] ?? "";
     setSubject(nextSubject);
     setDate(pickDefaultDate(getClinicDatesForSubject(term, nextSubject)));
     setErr("");
@@ -1086,6 +1099,11 @@ export function StudentPortal({
                   지난 학기는 <b>내 이력·통계</b>에서 조회만 가능합니다. 입력은 진행중인
                   학기에서만 할 수 있어요.
                 </Card>
+              ) : inputSubjects.length === 0 ? (
+                <Card style={{ padding: 20, color: T.sub, fontSize: 14 }}>
+                  진행 중인 수업이 없습니다. 종료된 수업 기록은 <b>내 이력·통계</b>에서
+                  확인할 수 있어요.
+                </Card>
               ) : (
                 <>
                   <Card style={{ padding: 16, marginBottom: 16 }}>
@@ -1094,8 +1112,12 @@ export function StudentPortal({
                         <div style={{ fontSize: 12.5, fontWeight: 700, color: T.sub, marginBottom: 6 }}>
                           과목
                         </div>
-                        <select style={inputBase} value={subject} onChange={(e) => setSubject(e.target.value)}>
-                          {subjects.map((s) => (
+                        <select
+                          style={inputBase}
+                          value={subject}
+                          onChange={(e) => setSubject(e.target.value)}
+                        >
+                          {inputSubjects.map((s) => (
                             <option key={s}>{s}</option>
                           ))}
                         </select>

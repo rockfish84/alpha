@@ -7,6 +7,7 @@ import { buildMaxMap } from "@/lib/testconfig";
 import { resolveTerm } from "@/lib/term";
 import { toDate } from "@/lib/date";
 import { getClinicDatesForSubject } from "@/lib/clinic-dates";
+import { isSubjectClosed } from "@/lib/subject-status";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +75,12 @@ export async function POST(req: Request) {
   ) {
     return NextResponse.json(
       { error: "이 학기에 수강 중인 수업이 아닙니다." },
+      { status: 403 }
+    );
+  }
+  if (isSubjectClosed(term, subject)) {
+    return NextResponse.json(
+      { error: "종료된 수업에는 새 응답을 제출할 수 없습니다." },
       { status: 403 }
     );
   }

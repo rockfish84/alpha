@@ -92,6 +92,8 @@ TZ             = Asia/Seoul
 - **TestConfig** — subject, date, maxScore. 유니크: `{subject, date}` (회차별 테스트 만점)
 - **Admin** — username(unique), password(hash)
 - **Settings** — 싱글턴: subjects[], clinicDates[]
+- **Term** — name(unique), subjects[], clinicDates[], clinicDatesBySubject{반→날짜[]},
+  closedSubjects[] (먼저 종료한 반), active(학기 진행 여부), order
 
 테스트 점수는 `testScore / maxScore` 로 100점 환산되어 통계·추이 그래프에 사용됩니다.
 
@@ -125,6 +127,15 @@ TZ             = Asia/Seoul
 
 **관리자 화면**: 상단 학기 선택기로 전환, **학기 관리** 탭에서 학기 생성/진행 시작·종료/설정(반·날짜)/삭제.
 새 학기 만들 때 이전 학기에서 반·날짜·명단을 복사할 수 있습니다.
+
+**반(수업)별 진행/종료**: 학기 설정에서 반마다 따로 **진행 종료 / 진행 시작**을 누를 수 있어,
+학기 전체를 닫지 않고 먼저 끝난 반만 정리할 수 있습니다(`Term.closedSubjects`).
+같은 화면에서 **반별 클리닉 날짜를 추가·삭제**합니다(`Term.clinicDatesBySubject`, 공통
+`clinicDates` 는 그 union 으로 자동 갱신). 종료된 반은 **클리닉 현황·테스트/과제**의 과목
+목록과 **학생 입력 화면**에서 사라지고, 학생의 신규 제출도 서버에서 막힙니다(403).
+쌓인 기록은 지워지지 않으며, 관리자는 두 화면의 `종료 수업 포함` 체크로 다시 꺼내볼 수
+있습니다. 반 이름은 학생 등록·기록과 문자열로 연결되어 있어 설정 화면에서 바꿀 수 없고
+추가·삭제만 가능합니다.
 
 `2026 2학기`의 `고1 공수2`, `고2 미적분1`, `고2 확통` 수강생에게는 학생 화면에
 **1학기 성적 입력** 탭이 표시됩니다. 학생은 실제 1학기 학교 과목명과
