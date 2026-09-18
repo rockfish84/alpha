@@ -313,6 +313,16 @@ function header(
   ctx.fillText(who.academy ?? "더브코 알파 클리닉", width - 32, 90);
 }
 
+/** 문자(MMS)는 200KB 한도가 있지만, 내려받는 이미지는 화질을 깎을 이유가 없다. */
+export interface CardOutput {
+  /** true 면 용량 제한 없이 PNG 로 (사이트에서 내려받기용) */
+  forDownload?: boolean;
+}
+
+function encode(canvas: HTMLCanvasElement, opts?: CardOutput): string {
+  return opts?.forDownload ? canvas.toDataURL("image/png") : toJpeg(canvas);
+}
+
 /** 200KB 한도 안에서 가능한 가장 높은 화질로 인코딩한다. */
 function toJpeg(canvas: HTMLCanvasElement): string {
   for (const q of [0.96, 0.94, 0.92, 0.9, 0.86, 0.8, 0.74, 0.66, 0.56, 0.46]) {
@@ -441,7 +451,7 @@ export function drawRoundCard(data: RoundCardData): string {
 }
 
 /** 점수 추이 카드 (최근 회차 기준 한 장) */
-export function drawTrendCard(data: TrendCardData): string {
+export function drawTrendCard(data: TrendCardData, opts?: CardOutput): string {
   const W = CARD_WIDTH;
   const H = 820;
   const canvas = document.createElement("canvas");
@@ -474,7 +484,7 @@ export function drawTrendCard(data: TrendCardData): string {
   ctx.fillStyle = T.muted;
   ctx.font = `23px ${FONT}`;
   ctx.fillText("파란 선 = 내 점수 · 회색 점선 = 반 평균", W / 2, H - 26);
-  return toJpeg(canvas);
+  return encode(canvas, opts);
 }
 
 /* ============================== 테스트 성적 상세 카드 ==============================
@@ -527,7 +537,7 @@ const cut = (ctx: CanvasRenderingContext2D, text: string, max: number) => {
   return t + "…";
 };
 
-export function drawTestDetailCard(d: DetailCardData): string {
+export function drawTestDetailCard(d: DetailCardData, opts?: CardOutput): string {
   const pad = 32;
   const rows = d.questions.length;
   const headerH = 112;
@@ -820,5 +830,5 @@ export function drawTestDetailCard(d: DetailCardData): string {
     height - 16
   );
 
-  return toJpeg(canvas);
+  return encode(canvas, opts);
 }

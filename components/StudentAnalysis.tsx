@@ -588,14 +588,22 @@ function QuestionCards({ rows }: { rows: QuestionAnalysis[] }) {
 export function TestDetail({
   test,
   hideFiles = false,
+  order = "no",
 }: {
   test: TestAnalysis;
   /** 공유 링크 화면처럼 로그인 없이 보는 곳에서는 시험지·답지 내려받기를 감춘다. */
   hideFiles?: boolean;
+  /** 문항 순서: 문번 순(기본) 또는 정답률 낮은 순 */
+  order?: "wrongRank" | "no";
 }) {
   const rows = useMemo(
-    () => [...test.questions].sort((a, b) => a.wrongRank - b.wrongRank || a.no - b.no),
-    [test.questions]
+    () =>
+      [...test.questions].sort((a, b) =>
+        order === "no"
+          ? a.no - b.no || a.part - b.part
+          : a.wrongRank - b.wrongRank || a.no - b.no
+      ),
+    [test.questions, order]
   );
   const narrow = useNarrow();
 
@@ -986,8 +994,8 @@ export function TestScoresTab({
 export function QuestionAnalysisTab({
   tests,
   subject,
-  setSubject,
-  subjects,
+  date,
+  setDate,
   typeOrder = [],
   bookmarks,
   onToggleBookmark,
@@ -995,8 +1003,9 @@ export function QuestionAnalysisTab({
 }: {
   tests: TestAnalysis[];
   subject: string;
-  setSubject: (s: string) => void;
-  subjects: string[];
+  /** 회차는 "테스트 성적" 탭과 마찬가지로 화면 맨 위(학기 줄)에서 고른다. */
+  date: string;
+  setDate: (d: string) => void;
   typeOrder?: string[];
   bookmarks: Set<string>;
   onToggleBookmark: (row: { subject: string; date: string; label: string }, on: boolean) => void;
@@ -1017,11 +1026,7 @@ export function QuestionAnalysisTab({
     () => tests.filter((t) => t.subject === subject && t.hasKey),
     [tests, subject]
   );
-  const [date, setDate] = useState("");
-  useEffect(() => {
-    setDate(rows.length ? rows[rows.length - 1].date : "");
-  }, [subject, rows.length]);
-  const test = rows.find((t) => t.date === date) ?? null;
+  const test = rows.find((t) => t.date === date) ?? rows[rows.length - 1] ?? null;
 
   // 유형별 강약점 (이 반 전 회차 통합)
   const byType = useMemo(() => {
@@ -1079,21 +1084,6 @@ export function QuestionAnalysisTab({
           alignItems: "center",
         }}
       >
-        <SubjectSwitch subjects={subjects} value={subject} onChange={setSubject} />
-        {rows.length > 0 && <span style={filterLabel}>회차</span>}
-        {rows.length > 0 && (
-          <select
-            style={{ ...inputBase, width: "auto", minWidth: 150, padding: "8px 12px" }}
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          >
-            {rows.map((t) => (
-              <option key={t.date} value={t.date}>
-                {formatDay(t.date)} 테스트
-              </option>
-            ))}
-          </select>
-        )}
         {test && <FileLinks test={test} />}
       </div>
 

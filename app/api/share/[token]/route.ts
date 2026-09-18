@@ -39,6 +39,12 @@ export async function GET(
     link.subject,
   ]);
   const test = tests.find((t) => t.date === iso);
+  // 점수 추이 (같은 반, 이 회차까지 최근 6회)
+  const trend = tests
+    .filter((t) => t.myPct != null && t.date <= iso)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-6)
+    .map((t) => ({ date: t.date, score: t.myPct as number, average: t.avg }));
   if (!test) {
     return NextResponse.json(
       { error: "아직 성적이 등록되지 않았습니다." },
@@ -60,6 +66,7 @@ export async function GET(
         grade: (enr?.grade ?? "") as string,
       },
       test,
+      trend,
       expiresAt: link.expiresAt.toISOString(),
     },
     { headers: { "X-Robots-Tag": "noindex, nofollow", "Cache-Control": "no-store" } }

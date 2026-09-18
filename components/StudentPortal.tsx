@@ -896,8 +896,9 @@ export function StudentPortal({
   const [analysisErr, setAnalysisErr] = useState("");
   // 오답 노트 별표 (학생이 표시한 다시 볼 문항)
   const [bookmarks, setBookmarks] = useState<Set<string>>(new Set());
-  // 테스트 성적 탭에서 보고 있는 회차 (학기 옆에서 고른다)
+  // 테스트 성적 · 문항별 분석 탭에서 보고 있는 회차 (학기 옆에서 고른다)
   const [scoreDate, setScoreDate] = useState("");
+  const [questionDate, setQuestionDate] = useState("");
   const [subject, setSubject] = useState(
     () => openSubjects(term)[0] ?? subjects[0] ?? ""
   );
@@ -1050,6 +1051,19 @@ export function StudentPortal({
     setScoreDate((cur) => (scoreDates.includes(cur) ? cur : scoreDates[0] ?? ""));
   }, [scoreDates]);
 
+  // 문항별 분석은 답안 키가 있는 회차만 (회차 선택 위치는 테스트 성적과 동일)
+  const questionDates = useMemo(
+    () =>
+      analysis
+        .filter((t) => t.subject === subject && t.hasKey)
+        .map((t) => t.date)
+        .sort((a, b) => b.localeCompare(a)),
+    [analysis, subject]
+  );
+  useEffect(() => {
+    setQuestionDate((cur) => (questionDates.includes(cur) ? cur : questionDates[0] ?? ""));
+  }, [questionDates]);
+
   const mine = sessions;
   const current = mine.find((s) => s.date === date && s.subject === subject);
   const readOnly = !term?.active; // 지난 학기는 조회 전용
@@ -1165,7 +1179,7 @@ export function StudentPortal({
         ))}
       </select>
 
-      {tab === "scores" && subjects.length > 1 && (
+      {(tab === "scores" || tab === "questions") && subjects.length > 1 && (
         <>
           <span style={{ fontSize: 13, fontWeight: 700, color: T.sub, marginLeft: 4 }}>
             과목
@@ -1184,32 +1198,39 @@ export function StudentPortal({
         </>
       )}
 
-      {tab === "scores" && scoreDates.length > 0 && (
-        <>
-          <span style={{ fontSize: 13, fontWeight: 700, color: T.sub, marginLeft: 4 }}>
-            회차
-          </span>
-          <select
-            style={{
-              ...inputBase,
-              width: "auto",
-              minWidth: 150,
-              padding: "8px 12px",
-              fontWeight: 700,
-              color: T.primary,
-              borderColor: T.primary,
-            }}
-            value={scoreDate}
-            onChange={(e) => setScoreDate(e.target.value)}
-          >
-            {scoreDates.map((d, i) => (
-              <option key={d} value={d}>
-                {formatDay(d)} 테스트{i === 0 ? " (최근)" : ""}
-              </option>
-            ))}
-          </select>
-        </>
-      )}
+      {(() => {
+        // 회차 선택은 "테스트 성적"·"문항별 분석" 두 탭에서 같은 자리·같은 모양으로 쓴다.
+        const roundDates = tab === "scores" ? scoreDates : questionDates;
+        const roundValue = tab === "scores" ? scoreDate : questionDate;
+        const setRound = tab === "scores" ? setScoreDate : setQuestionDate;
+        if ((tab !== "scores" && tab !== "questions") || roundDates.length === 0) return null;
+        return (
+          <>
+            <span style={{ fontSize: 13, fontWeight: 700, color: T.sub, marginLeft: 4 }}>
+              회차
+            </span>
+            <select
+              style={{
+                ...inputBase,
+                width: "auto",
+                minWidth: 150,
+                padding: "8px 12px",
+                fontWeight: 700,
+                color: T.primary,
+                borderColor: T.primary,
+              }}
+              value={roundValue}
+              onChange={(e) => setRound(e.target.value)}
+            >
+              {roundDates.map((d, i) => (
+                <option key={d} value={d}>
+                  {formatDay(d)} 테스트{i === 0 ? " (최근)" : ""}
+                </option>
+              ))}
+            </select>
+          </>
+        );
+      })()}
 
       {readOnly && (
         <span
@@ -1379,8 +1400,8 @@ export function StudentPortal({
                   <QuestionAnalysisTab
                     tests={analysis}
                     subject={subject}
-                    setSubject={setSubject}
-                    subjects={subjects}
+                    date={questionDate}
+                    setDate={setQuestionDate}
                     typeOrder={typeOrder[subject] ?? []}
                     bookmarks={bookmarks}
                     canBookmark={!viewerOnly}
