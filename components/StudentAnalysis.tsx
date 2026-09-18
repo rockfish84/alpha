@@ -680,11 +680,10 @@ export function TestDetail({
         <QuestionCards rows={rows} />
       ) : (
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 780 }}>
             <thead>
               <tr>
                 {[
-                  "정답률 낮은 순",
                   "문번",
                   "유형",
                   "배점",
@@ -703,10 +702,7 @@ export function TestDetail({
             <tbody>
               {rows.map((q) => (
                 <tr key={q.label}>
-                  <td style={{ ...td, textAlign: "center", fontWeight: 800, color: T.sub }}>
-                    {q.wrongRank}
-                  </td>
-                  <td style={{ ...td, fontWeight: 800 }}>{q.label}</td>
+                  <td style={{ ...td, textAlign: "center", fontWeight: 800 }}>{q.label}</td>
                   <td
                     style={{
                       ...td,
