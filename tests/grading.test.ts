@@ -82,8 +82,8 @@ test("자동 채점: 배점 합산 점수와 O/△/X 채점표", () => {
     "3-(1)": "3", // 정답
     "3-(2)": "9", // 오답 → 3번은 △
   });
-  assert.equal(r.max, 30);
-  assert.equal(r.score, 15);
+  assert.equal(r.max, 100);
+  assert.equal(r.score, 50); // 30점 중 15점 → 100점 만점 환산 50점
   assert.equal(r.pct, 50);
   assert.deepEqual(r.marks, { 1: "O", 2: "X", 3: "△" });
 });
@@ -129,6 +129,30 @@ test("새 테스트는 100점 만점으로 균등 배분된다 (10문항 = 각 1
   assert.equal(totalPoints(qs), FULL_SCORE);
 });
 
+test("문항 수가 100 으로 안 떨어져도 배점은 모두 같다", () => {
+  for (const n of [3, 7, 9, 11]) {
+    const points = buildQuestions(n).map((q) => q.points);
+    assert.equal(new Set(points).size, 1, `${n}문항 배점이 제각각`);
+  }
+});
+
+test("배점이 안 떨어져도 다 맞으면 정확히 100점", () => {
+  for (const n of [3, 7, 9, 11]) {
+    const qs = buildQuestions(n).map((q, i) => ({ ...q, answer: String(i + 1) }));
+    const answers = Object.fromEntries(
+      qs.map((q, i) => [questionLabel(q), String(i + 1)])
+    );
+    const all = gradeAnswers(qs, answers);
+    assert.equal(all.score, 100, `${n}문항 만점`);
+    assert.equal(all.max, 100);
+
+    // 하나 틀리면 (n-1)/n 비율
+    const { [questionLabel(qs[0])]: _drop, ...rest } = answers;
+    const one = gradeAnswers(qs, rest);
+    assert.equal(one.score, Math.round(((n - 1) / n) * 10000) / 100, `${n}문항 부분점수`);
+  }
+});
+
 test("부분문제는 그 문항 몫을 다시 나눠 갖는다 (1-(1),1-(2) 각 5점)", () => {
   const qs = distributePoints([
     q({ no: 1, part: 1 }),
@@ -149,12 +173,6 @@ test("부분문제가 있는 주 문항 행은 0점이고 채점에서도 빠진
   assert.equal(main?.points, 0);
   assert.deepEqual(gradableQuestions(qs).map(questionLabel), ["1-(1)", "1-(2)"]);
   assert.equal(totalPoints(qs), FULL_SCORE);
-});
-
-test("나누어떨어지지 않아도 배점 합은 정확히 100점", () => {
-  for (const n of [3, 6, 7, 9, 11, 13]) {
-    assert.equal(totalPoints(buildQuestions(n)), FULL_SCORE, `${n}문항`);
-  }
 });
 
 test("난이도는 최상·상·중·하·최하 5단계", () => {

@@ -54,14 +54,12 @@ export function buildQuestions(count: number): TestQuestion[] {
   );
 }
 
-/** total 을 n 등분하되 소수점 둘째 자리까지 맞추고 합이 정확히 total 이 되게 한다. */
+/** total 을 n 등분한다. 모든 문항이 똑같은 배점을 갖도록 나머지를 나눠 주지 않는다.
+ *  (100/9 처럼 안 떨어지면 소수점 둘째 자리까지만 표시하고, 점수는 비율로 계산한다) */
 function splitEvenly(total: number, n: number): number[] {
   if (n <= 0) return [];
-  const cents = Math.round(total * 100);
-  const base = Math.floor(cents / n);
-  const rest = cents - base * n;
-  // 나머지는 앞 문항부터 1전(0.01점)씩 더한다.
-  return Array.from({ length: n }, (_, i) => (base + (i < rest ? 1 : 0)) / 100);
+  const per = Math.round((total / n) * 100) / 100;
+  return Array.from({ length: n }, () => per);
 }
 
 /**
@@ -320,12 +318,17 @@ export function gradeAnswers(
     else marks[no] = "△";
   }
 
-  const score = Math.round(results.reduce((a, r) => a + r.earned, 0) * 100) / 100;
-  const max = totalPoints(questions);
+  // 배점이 100 으로 딱 안 떨어져도(예: 100/9) 점수는 비율로 계산해
+  // 항상 100점 만점이 되게 한다. 만점이면 정확히 100점.
+  const earned = results.reduce((a, r) => a + r.earned, 0);
+  const rawMax = totalPoints(questions);
+  const score =
+    rawMax > 0 ? Math.round((earned / rawMax) * FULL_SCORE * 100) / 100 : 0;
+  const max = FULL_SCORE;
   return {
     score,
     max,
-    pct: max > 0 ? Math.round((score / max) * 100) : 0,
+    pct: Math.round(score),
     answeredCount: results.filter((r) => r.answered).length,
     results,
     marks,

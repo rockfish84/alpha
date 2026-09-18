@@ -11,6 +11,7 @@ import type {
 export type { ChoiceShare, QuestionAnalysis, TestAnalysis };
 
 import {
+  FULL_SCORE,
   acceptedAnswers,
   buildDistribution,
   gradeAnswers,
@@ -98,8 +99,8 @@ export async function buildTestAnalyses(
 
     const mine = rows.find((r) => String(r.student) === String(studentId));
     const paperMax = hasKey
-      ? totalPoints(questions) || 1
-      : (config?.maxScore ?? 10) || 10;
+      ? FULL_SCORE
+      : (config?.maxScore ?? FULL_SCORE) || FULL_SCORE;
 
     // 응시자: 답안 키가 있으면 답안 입력자, 없으면 점수 입력자
     type Scored = { row: SessionLike; score: number; pct: number; answers: Record<string, string> };
@@ -178,25 +179,43 @@ export async function buildTestAnalyses(
         // 답안 분포: 객관식은 보기 번호 순, 단답형은 정답 먼저.
         // 종류가 6개를 넘으면 적게 나온 답부터 "기타" 로 묶는다.
         const accepted = acceptedAnswers(q.answer);
-        const must =
-          q.choices > 0
-            ? Array.from({ length: q.choices }, (_, i) => String(i + 1))
-            : [...new Set(accepted)];
+        const isChoice = q.choices > 0;
+        // 객관식은 보기 번호 순, 단답형은 정답을 맨 앞에 두고 많이 쓴 답 순으로.
+        const must = isChoice
+          ? Array.from({ length: q.choices }, (_, i) => String(i + 1))
+          : [...new Set(accepted)].filter((a) => choiceCount.has(a));
         const used = new Set([...must]);
         const noAnswerCount = choiceCount.get(NO_ANSWER) ?? 0;
-        if (noAnswerCount > 0) used.add(NO_ANSWER);
 
         const rest = [...choiceCount.entries()]
-          .filter(([k]) => !used.has(k))
+          .filter(([k]) => !used.has(k) && (isChoice ? k !== NO_ANSWER : true))
           .sort((a, b) => b[1] - a[1])
           .map(([k]) => k);
 
-        const shown = [...must, ...(noAnswerCount > 0 ? [NO_ANSWER] : [])];
-        const slots = Math.max(0, MAX_SHARES - shown.length);
+        // 객관식은 보기 뒤에 미제출을 따로 붙이고, 단답형은 개수 순서에 함께 섞는다.
+        const head = isChoice
+          ? [...must, ...(noAnswerCount > 0 ? [NO_ANSWER] : [])]
+          : must;
+        const slots = Math.max(0, MAX_SHARES - head.length);
         const kept = rest.slice(0, slots);
-        const leftover = rest.slice(slots);
-        shown.push(...kept);
+        let leftover = rest.slice(slots);
 
+        // 내 답안이 흔치 않아 "기타" 로 묶이면 내 막대를 못 보게 된다.
+        // 그럴 땐 마지막 칸을 내 답안에 양보한다.
+        const minePending =
+          !!mineScored &&
+          !!myBucket &&
+          choiceCount.has(myBucket) &&
+          !head.includes(myBucket) &&
+          !kept.includes(myBucket);
+        if (minePending) {
+          if (kept.length) leftover.unshift(kept.pop()!);
+          kept.push(myBucket);
+          leftover = leftover.filter((k) => k !== myBucket);
+        }
+        const shown = [...head, ...kept];
+
+        // 화면에 보여줄 표기 (학생이 실제로 쓴 형태 우선)
         const answerLabels = q.answer
           .split("|")
           .map((a) => a.trim())
@@ -205,10 +224,10 @@ export async function buildTestAnalyses(
           if (choice === NO_ANSWER || choice === ETC) return choice;
           const saved = choiceLabel.get(choice);
           if (saved) return saved;
-          // 아무도 고르지 않은 보기: 정답이면 정답 표기를, 아니면 값 그대로
           const asAnswer = answerLabels.find((a) => normalizeAnswer(a) === choice);
           return asAnswer ?? choice;
         };
+
         const toShare = (choice: string, count: number): ChoiceShare => ({
           choice,
           label: labelOf(choice),
@@ -221,6 +240,11 @@ export async function buildTestAnalyses(
         const shares: ChoiceShare[] = shown.map((choice) =>
           toShare(choice, choiceCount.get(choice) ?? 0)
         );
+        // 단답형에서 아무도 못 맞힌 정답은 맨 앞에 0% 로 보여 준다.
+        if (!isChoice && accepted.length && !shares.some((c) => c.correct)) {
+          shares.unshift(toShare(accepted[0], 0));
+          if (shares.length > MAX_SHARES + 1) shares.pop();
+        }
         if (leftover.length) {
           const count = leftover.reduce((a, k) => a + (choiceCount.get(k) ?? 0), 0);
           shares.push({

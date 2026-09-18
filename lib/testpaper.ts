@@ -2,6 +2,7 @@
 import { Session, TestConfig } from "./models";
 import { isoDate, toDate } from "./date";
 import {
+  FULL_SCORE,
   gradeAnswers,
   normalizeQuestions,
   totalPoints,
@@ -151,7 +152,8 @@ export async function saveQuestions(
 ) {
   const questions = normalizeQuestions(rawQuestions);
   const set: Record<string, any> = { questions };
-  if (questions.length) set.maxScore = totalPoints(questions) || 1;
+  // 배점이 100 으로 딱 안 떨어져도(예: 100/9) 만점은 항상 100점이다.
+  if (questions.length && totalPoints(questions) > 0) set.maxScore = FULL_SCORE;
   if (typeof extra.answersPublished === "boolean") {
     set.answersPublished = extra.answersPublished;
   }

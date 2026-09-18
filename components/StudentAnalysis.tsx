@@ -18,6 +18,7 @@ import {
   FILE_KIND_LABEL,
   bookmarkKey,
   formatFileSize,
+  type ChoiceShare,
   type QuestionAnalysis,
   type TestAnalysis,
 } from "@/lib/analysis-types";
@@ -178,53 +179,213 @@ function Distribution({ test }: { test: TestAnalysis }) {
 }
 
 /* ============================== 답안 분포 ============================== */
-/** 답이 길면 막대 칸을 넓혀 표기가 잘리지 않게 한다. */
-function shareWidth(label: string): number {
-  const len = [...label].length;
-  if (len <= 1) return 24;
-  return Math.min(96, 20 + len * 7);
+/** 분포 칸 전체 폭 (표가 옆으로 넘치지 않도록 고정) */
+const DIST_WIDTH = 200;
+const DIST_GAP = 3;
+const BAR_AREA = 38; // 막대가 그려지는 높이 (이 영역 전체가 마우스 대상)
+
+type HoverShare = { share: ChoiceShare; x: number; y: number; below: boolean };
+
+/** 막대에 마우스를 올리면 뜨는 말풍선 */
+function ShareTooltip({ hover }: { hover: HoverShare }) {
+  const { share, x, y, below } = hover;
+  return (
+    <div
+      style={{
+        position: "fixed",
+        left: x,
+        top: y,
+        transform: below ? "translate(-50%, 0)" : "translate(-50%, -100%)",
+        zIndex: 80,
+        pointerEvents: "none",
+        background: "#1E2B45",
+        color: "#fff",
+        borderRadius: 10,
+        padding: "9px 12px",
+        boxShadow: "0 10px 26px rgba(15,23,42,.28)",
+        maxWidth: 280,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 13.5,
+          fontWeight: 800,
+          lineHeight: 1.35,
+          wordBreak: "break-word",
+        }}
+      >
+        {share.label || share.choice}
+      </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          marginTop: 5,
+          fontSize: 12,
+          color: "rgba(255,255,255,.75)",
+        }}
+      >
+        <span>
+          {share.count}명 · {share.ratio}%
+        </span>
+        {share.correct && (
+          <span style={{ ...tipBadge, background: "rgba(46,158,107,.9)" }}>정답</span>
+        )}
+        {share.mine && (
+          <span
+            style={{
+              ...tipBadge,
+              // 내가 맞힌 답이면 초록으로 (틀렸을 때만 빨강)
+              background: share.correct ? "rgba(46,158,107,.9)" : "rgba(210,84,63,.9)",
+            }}
+          >
+            내 답안
+          </span>
+        )}
+      </div>
+      <span
+        style={{
+          position: "absolute",
+          left: "50%",
+          ...(below ? { top: -5 } : { bottom: -5 }),
+          width: 10,
+          height: 10,
+          marginLeft: -5,
+          background: "#1E2B45",
+          transform: "rotate(45deg)",
+          borderRadius: 2,
+        }}
+      />
+    </div>
+  );
 }
 
+const tipBadge: React.CSSProperties = {
+  padding: "1px 6px",
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 800,
+  color: "#fff",
+};
+
 function ChoiceBars({ q }: { q: QuestionAnalysis }) {
+  const [hover, setHover] = useState<HoverShare | null>(null);
   if (!q.choiceShares.length) return <span style={{ color: T.muted }}>—</span>;
+
+  const show = (share: ChoiceShare) => (e: React.MouseEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    // 화면 위쪽이면 말풍선을 아래로 내려 잘리지 않게 한다
+    const below = r.top < 120;
+    const x = Math.min(
+      Math.max(r.left + r.width / 2, 150),
+      window.innerWidth - 150
+    );
+    setHover({ share, x, y: below ? r.bottom + 8 : r.top - 8, below });
+  };
+
   return (
-    <div style={{ display: "flex", gap: 4, alignItems: "flex-end", minWidth: 132 }}>
-      {q.choiceShares.map((c) => {
-        const label = c.label || c.choice;
-        return (
-          <div
-            key={c.choice}
-            style={{ width: shareWidth(label), textAlign: "center" }}
-            title={`${label}: ${c.count}명 (${c.ratio}%)`}
-          >
+    <>
+      <div
+        style={{
+          display: "flex",
+          gap: DIST_GAP,
+          alignItems: "stretch",
+          width: DIST_WIDTH,
+          maxWidth: DIST_WIDTH,
+          overflow: "hidden",
+        }}
+        onMouseLeave={() => setHover(null)}
+      >
+        {q.choiceShares.map((c) => {
+          const label = c.label || c.choice;
+          const on = hover?.share === c;
+          return (
+            // 막대가 짧아도 칸 전체가 마우스 대상이 되도록 감싼다
             <div
+              key={c.choice}
+              onMouseEnter={show(c)}
+              onMouseMove={show(c)}
+              onClick={show(c)}
               style={{
-                height: Math.max(3, Math.round((c.ratio / 100) * 34)),
-                background: c.correct ? T.ok : c.mine ? T.bad : "#C7D2E4",
-                borderRadius: 3,
-                marginBottom: 3,
-              }}
-            />
-            <div
-              style={{
-                fontSize: 9.5,
-                color: c.correct ? T.ok : c.mine ? T.bad : T.muted,
-                fontWeight: c.correct || c.mine ? 800 : 500,
-                lineHeight: 1.25,
-                display: "-webkit-box",
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-                wordBreak: "break-all",
+                // 칸을 넘지 않도록 남은 폭을 똑같이 나눠 쓴다
+                flex: "1 1 0",
+                minWidth: 0,
+                textAlign: "center",
+                padding: "3px 1px",
+                borderRadius: 7,
+                background: on ? "rgba(44,74,130,.08)" : "transparent",
+                cursor: "default",
+                transition: "background .12s",
               }}
             >
-              {label}
+              <div
+                style={{
+                  height: BAR_AREA,
+                  display: "flex",
+                  alignItems: "flex-end",
+                  marginBottom: 3,
+                }}
+              >
+                <div
+                  style={{
+                    width: "100%",
+                    height: Math.max(3, Math.round((c.ratio / 100) * BAR_AREA)),
+                    background: c.correct ? T.ok : c.mine ? T.bad : "#C7D2E4",
+                    borderRadius: 4,
+                    outline: on ? `2px solid rgba(44,74,130,.35)` : "none",
+                    outlineOffset: 1,
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  fontSize: 9.5,
+                  color: c.correct ? T.ok : c.mine ? T.bad : T.muted,
+                  fontWeight: c.correct || c.mine ? 800 : 500,
+                  lineHeight: 1.25,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {label}
+              </div>
+              <div style={{ fontSize: 9.5, color: T.muted }}>{c.ratio}%</div>
             </div>
-            <div style={{ fontSize: 9.5, color: T.muted }}>{c.ratio}%</div>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+      {hover && <ShareTooltip hover={hover} />}
+    </>
+  );
+}
+
+/** 긴 답이 표를 늘리지 않도록 잘라서 보여 준다 (마우스를 올리면 전체가 보인다). */
+function Clamped({
+  text,
+  max = 130,
+  style,
+}: {
+  text: string;
+  max?: number;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <span
+      title={text}
+      style={{
+        display: "inline-block",
+        maxWidth: max,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        verticalAlign: "bottom",
+        ...style,
+      }}
+    >
+      {text}
+    </span>
   );
 }
 
@@ -377,7 +538,7 @@ function TestDetail({ test }: { test: TestAnalysis }) {
                   </td>
                   <td style={{ ...td, textAlign: "center" }}>{q.points}</td>
                   <td style={{ ...td, textAlign: "center", fontWeight: 700, color: T.ok }}>
-                    {displayAnswer(q.answer) || "—"}
+                    <Clamped text={displayAnswer(q.answer) || "—"} />
                   </td>
                   <td
                     style={{
@@ -1533,7 +1694,7 @@ export function WrongNoteTab({
                         {w.difficulty || "—"}
                       </td>
                       <td style={{ ...td, textAlign: "center", fontWeight: 800, color: T.ok }}>
-                        {displayAnswer(w.answer)}
+                        <Clamped text={displayAnswer(w.answer)} max={120} />
                       </td>
                       <td
                         style={{
@@ -1543,7 +1704,7 @@ export function WrongNoteTab({
                           color: w.myCorrect ? T.ok : T.bad,
                         }}
                       >
-                        {w.myAnswered ? w.myAnswer : "미제출"}
+                        <Clamped text={w.myAnswered ? w.myAnswer : "미제출"} max={120} />
                       </td>
                       <td
                         style={{

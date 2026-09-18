@@ -369,18 +369,67 @@ function AnswerKeyEditor({
     () => [...new Set(questions.map((q) => q.no))].sort((a, b) => a - b),
     [questions]
   );
+  const [addDraft, setAddDraft] = useState("");
   const [countDraft, setCountDraft] = useState(String(mainNos.length || DEFAULT_QUESTION_COUNT));
   useEffect(() => {
     setCountDraft(String(mainNos.length || DEFAULT_QUESTION_COUNT));
   }, [mainNos.length]);
 
+  // 문번이 1,2,3… 로 이어지지 않는 회차 (예: 4, 7, 10번만 푼 날)
+  const isSparse = mainNos.some((no, i) => no !== i + 1);
+
+  /** 1~N번으로 다시 구성 (지금 문번 구성이 띄엄띄엄이면 한 번 확인) */
   const applyCount = (raw: string) => {
     const n = Math.max(1, Math.min(MAX_QUESTION_COUNT, Math.floor(Number(raw) || 0)));
+    // 값을 그대로 두고 포커스만 빠진 경우엔 아무것도 하지 않는다
+    // (4·7·10번처럼 골라 둔 구성이 실수로 지워지지 않도록)
+    if (n === mainNos.length) {
+      setCountDraft(String(mainNos.length));
+      return;
+    }
+    if (
+      isSparse &&
+      !confirm(
+        `문번을 1~${n}번으로 다시 만들까요?\n지금 구성(${mainNos.join(", ")}번)은 사라집니다.`
+      )
+    ) {
+      setCountDraft(String(mainNos.length));
+      return;
+    }
     const kept = questions.filter((q) => q.no <= n);
     const existing = new Set(kept.map((q) => q.no));
     const added: TestQuestion[] = [];
     for (let i = 1; i <= n; i++) if (!existing.has(i)) added.push(blankQuestion(i));
     setQuestions(distributePoints([...kept, ...added]));
+  };
+
+  /** 문항 추가. 번호를 적으면 그 번호로, 비워 두면 마지막 번호 다음으로. */
+  const addQuestion = (raw?: string) => {
+    const typed = Math.floor(Number(raw ?? addDraft));
+    const no =
+      Number.isFinite(typed) && typed >= 1
+        ? typed
+        : (mainNos[mainNos.length - 1] ?? 0) + 1;
+    if (no < 1 || no > MAX_QUESTION_COUNT) return;
+    if (mainNos.includes(no)) {
+      alert(`${no}번 문항은 이미 있습니다.`);
+      return;
+    }
+    setQuestions(distributePoints([...questions, blankQuestion(no)]));
+    setAddDraft("");
+  };
+
+  /** 지운 번호 (다시 넣기 쉽도록 표시) */
+  const missingNos = (() => {
+    const last = mainNos[mainNos.length - 1] ?? 0;
+    const has = new Set(mainNos);
+    return Array.from({ length: last }, (_, i) => i + 1).filter((n) => !has.has(n));
+  })();
+
+  /** 그 문번 전체 삭제 (부분문제까지). 남은 문항으로 배점을 다시 나눈다. */
+  const removeQuestion = (no: number) => {
+    if (mainNos.length <= 1) return;
+    setQuestions(distributePoints(questions.filter((q) => q.no !== no)));
   };
 
   const patch = (no: number, part: number, p: Partial<TestQuestion>) =>
@@ -452,7 +501,8 @@ function AnswerKeyEditor({
   };
 
   const rows = sortQuestions(questions);
-  const max = totalPoints(questions);
+  // 배점 합이 100.03 처럼 딱 떨어지지 않아도 만점은 항상 100점 (점수는 비율로 계산)
+  const hasPoints = totalPoints(questions) > 0;
   const hasParts = (no: number) => questions.some((q) => q.no === no && q.part);
   const partsPoints = (no: number) =>
     Math.round(
@@ -476,8 +526,8 @@ function AnswerKeyEditor({
         <span style={{ fontSize: 15.5, fontWeight: 800, color: T.ink }}>
           그날의 테스트 답안 (정답)
         </span>
-        <Pill tone={max === FULL_SCORE ? "primary" : "warn"}>
-          만점 {max}점{max === FULL_SCORE ? "" : " · 100점 아님"}
+        <Pill tone={hasPoints ? "primary" : "warn"}>
+          {hasPoints ? `만점 ${FULL_SCORE}점` : "배점을 입력해주세요"}
         </Pill>
         {dirty && <Pill tone="warn">저장 안 됨</Pill>}
         <div style={{ flex: 1 }} />
@@ -511,17 +561,36 @@ function AnswerKeyEditor({
       >
         <div style={{ width: 110 }}>
           <div style={lbl}>문항 수</div>
-          <div style={{ display: "flex", gap: 6 }}>
+          <input
+            style={{ ...inputBase, textAlign: "center" }}
+            inputMode="numeric"
+            title="1~N번으로 만듭니다. 특정 번호만 쓰려면 아래 표에서 문항을 지우세요."
+            value={countDraft}
+            onChange={(e) => setCountDraft(e.target.value)}
+            onBlur={() => applyCount(countDraft)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+            }}
+          />
+        </div>
+        <div style={{ flex: "0 0 auto" }}>
+          <div style={lbl}>문항 추가</div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <input
-              style={{ ...inputBase, textAlign: "center" }}
+              style={{ ...inputBase, width: 64, textAlign: "center", padding: "8px 6px" }}
               inputMode="numeric"
-              value={countDraft}
-              onChange={(e) => setCountDraft(e.target.value)}
-              onBlur={() => applyCount(countDraft)}
+              placeholder="번호"
+              title="넣을 문번 (비워 두면 마지막 번호 다음)"
+              value={addDraft}
+              onChange={(e) => setAddDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") applyCount(countDraft);
+                if (e.key === "Enter") addQuestion();
               }}
             />
+            <Btn variant="outline" size="sm" onClick={() => addQuestion()}>
+              <Plus size={14} />
+              추가
+            </Btn>
           </div>
         </div>
         <div style={{ flex: "0 0 auto" }}>
@@ -543,10 +612,13 @@ function AnswerKeyEditor({
           </div>
         </div>
         <div style={{ fontSize: 12.5, color: T.sub, lineHeight: 1.6, flex: 1, minWidth: 240 }}>
-          배점은 <b>100점 만점</b>으로 자동 배분됩니다. 부분문제가 있으면 그 문항 몫을 다시
-          나눠 가집니다 (예: 10문항 중 1번이 2개로 나뉘면 1-(1)·1-(2) 각 5점).
+          배점은 <b>모든 문항이 같게</b> 자동 배분되고, 점수는 항상 <b>100점 만점</b>으로
+          계산됩니다 (9문항이면 각 11.11점이어도 다 맞으면 100점). 부분문제가 있으면 그 문항
+          몫을 다시 나눠 가집니다.
           <br />
           정답은 <b>문자·문자열</b>도 됩니다. 복수 정답은 <b>|</b> 로 구분하세요 (예: <b>3|③</b>).
+          <br />
+          그날 푼 문항만 채점하려면 표에서 <b>N번 삭제</b>로 빼면 됩니다 (예: 4·7·10번만 남기기).
         </div>
       </div>
 
@@ -575,6 +647,61 @@ function AnswerKeyEditor({
           키보드로 입력: {"<= ≤ · >= ≥ · != ≠ · +- ± · ^2 ² · sqrt √ · inf ∞ · pi π"}
         </span>
       </div>
+
+      {isSparse && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+            fontSize: 12.5,
+            fontWeight: 700,
+            color: T.primary,
+            background: T.primarySoft,
+            borderRadius: 9,
+            padding: "8px 11px",
+            marginBottom: 10,
+          }}
+        >
+          <span>
+            이 회차 문번: {mainNos.join(", ")}번 ({mainNos.length}문항)
+          </span>
+          {missingNos.length > 0 && (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                flexWrap: "wrap",
+                color: T.sub,
+                fontWeight: 600,
+              }}
+            >
+              빠진 번호
+              {missingNos.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => addQuestion(String(n))}
+                  title={`${n}번 문항 다시 넣기`}
+                  style={{
+                    padding: "2px 9px",
+                    borderRadius: 999,
+                    border: `1px solid ${T.line}`,
+                    background: "#fff",
+                    color: T.primary,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                  }}
+                >
+                  +{n}
+                </button>
+              ))}
+            </span>
+          )}
+        </div>
+      )}
 
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
@@ -700,10 +827,22 @@ function AnswerKeyEditor({
                   </td>
                   <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
                     {isFirstOfNo && (
-                      <Btn variant="ghost" size="xs" onClick={() => addPart(q.no)}>
-                        <Plus size={13} />
-                        부분문제
-                      </Btn>
+                      <>
+                        <Btn variant="ghost" size="xs" onClick={() => addPart(q.no)}>
+                          <Plus size={13} />
+                          부분문제
+                        </Btn>
+                        <Btn
+                          variant="ghost"
+                          size="xs"
+                          disabled={mainNos.length <= 1}
+                          onClick={() => removeQuestion(q.no)}
+                          title={`${q.no}번 문항 삭제 (안 푼 문항일 때)`}
+                        >
+                          <Trash2 size={13} />
+                          {q.no}번 삭제
+                        </Btn>
+                      </>
                     )}
                     {!!q.part && (
                       <Btn
