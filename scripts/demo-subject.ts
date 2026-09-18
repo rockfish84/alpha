@@ -207,12 +207,12 @@ async function main() {
         username,
         school: person.school,
         password: await bcrypt.hash(person.secret, 10),
-        passwordPlain: person.secret,
+        phone: person.secret,
       });
     } else {
       stu.name = person.name;
       stu.school = person.school;
-      stu.passwordPlain = person.secret;
+      stu.phone = person.secret;
       stu.password = await bcrypt.hash(person.secret, 10);
       await stu.save();
     }

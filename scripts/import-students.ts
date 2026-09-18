@@ -167,7 +167,7 @@ async function main() {
       { username: a.username },
       {
         $set: { name: a.name },
-        $setOnInsert: { password: hash, passwordPlain: a.password },
+        $setOnInsert: { password: hash, phone: a.password },
       },
       { upsert: true, new: true }
     );

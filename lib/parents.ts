@@ -5,8 +5,7 @@ import { Parent } from "./models";
 type StudentLike = {
   _id: unknown;
   username: string;
-  password: string;
-  passwordPlain?: string | null;
+  password: string; // bcrypt hash
 };
 
 /** 이 학생의 학부모 계정을 보장한다 (없으면 학생과 같은 비밀번호로 생성). */
@@ -17,7 +16,6 @@ export async function ensureParent(student: StudentLike) {
     student: student._id,
     username: student.username,
     password: student.password,
-    passwordPlain: student.passwordPlain ?? "",
     selfChanged: false,
   });
 }
@@ -30,7 +28,6 @@ export async function syncParentAccount(student: StudentLike) {
       $set: {
         username: student.username,
         password: student.password,
-        passwordPlain: student.passwordPlain ?? "",
       },
     }
   );

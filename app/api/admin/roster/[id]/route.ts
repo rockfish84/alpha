@@ -44,15 +44,37 @@ export async function PATCH(
     student.school = body.school;
     stuChanged = true;
   }
-  if (typeof body.password === "string" && body.password.trim() !== "") {
-    student.password = await bcrypt.hash(body.password, 10);
-    student.passwordPlain = body.password;
+  if (typeof body.phone === "string") {
+    student.phone = body.phone;
+    stuChanged = true;
+  }
+  // 비밀번호 재설정 (관리자용). 평문은 저장하지 않고, 응답으로도 돌려주지 않는다.
+  const newPassword =
+    typeof body.password === "string" && body.password.trim() !== ""
+      ? body.password.trim()
+      : "";
+  if (newPassword) {
+    if (newPassword.length < 6) {
+      return NextResponse.json(
+        { error: "비밀번호는 6자 이상이어야 합니다." },
+        { status: 400 }
+      );
+    }
+    student.password = await bcrypt.hash(newPassword, 10);
     stuChanged = true;
   }
   if (stuChanged) await student.save();
   await ensureParent(student as any);
-  if (typeof body.password === "string" && body.password.trim() !== "") {
+  if (newPassword) {
+    // 아직 스스로 바꾸지 않은 학부모 계정은 따라간다.
     await syncParentAccount(student as any);
+    // resetParent=true 면 학부모가 직접 바꾼 비밀번호도 덮어쓴다(잊었을 때).
+    if (body.resetParent) {
+      await Parent.findOneAndUpdate(
+        { student: student._id },
+        { $set: { password: student.password, selfChanged: false } }
+      );
+    }
   }
 
   const parent = await Parent.findOne({ student: student._id }).lean();

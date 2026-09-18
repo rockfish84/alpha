@@ -11,6 +11,33 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  async headers() {
+    const base = [
+      { key: "X-Frame-Options", value: "DENY" }, // 다른 사이트에 끼워 넣기 금지
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+      { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+    ];
+    if (process.env.NODE_ENV === "production") {
+      base.push({
+        key: "Strict-Transport-Security",
+        value: "max-age=63072000; includeSubDomains",
+      });
+    }
+    return [
+      { source: "/:path*", headers: base },
+      {
+        // 공유 링크는 주소 자체가 열쇠라 외부로 새 나가지 않게 한다.
+        source: "/share/:path*",
+        headers: [
+          ...base.filter((h) => h.key !== "Referrer-Policy"),
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+          { key: "Cache-Control", value: "no-store" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -17,6 +17,7 @@ import {
   FileText,
   PenLine,
   Image as ImageIcon,
+  Link2 as LinkIcon,
 } from "lucide-react";
 import {
   T,
@@ -444,8 +445,8 @@ function NotifyModal({
   const items = rows.map(({ student, r }) => ({
     id: student.id,
     name: student.name,
-    num: student.password ?? "",
-    valid: phoneOk(student.password ?? ""),
+    num: student.phone ?? "",
+    valid: phoneOk(student.phone ?? ""),
     text: buildSmsText(student.name, dateIso, r, max),
   }));
   // 표에서 이미 체크한 학생들 = rows. 테스트 모드가 아니면 번호 유효한 학생만 실제 발송.
@@ -1432,7 +1433,12 @@ function AdminQuickGrade({
 }
 
 /* ============================== STUDENTS ============================== */
-type EditStudent = Partial<Student> & { password?: string };
+type EditStudent = Partial<Student> & {
+  /** 새 계정의 첫 비밀번호 / 기존 계정의 재설정 값 (비워 두면 그대로 둠) */
+  password?: string;
+  /** 학부모가 직접 바꾼 비밀번호까지 덮어쓸지 (비밀번호를 잊었을 때) */
+  resetParent?: boolean;
+};
 
 function StudentForm({
   init,
@@ -1463,7 +1469,7 @@ function StudentForm({
         subjects: cur.includes(sub) ? cur.filter((x) => x !== sub) : [...cur, sub],
       };
     });
-  const ok = !!f.name && !!f.username && (isEdit || !!f.password);
+  const ok = !!f.name && !!f.username && (isEdit || !!f.password || !!f.phone);
   return (
     <div>
       <Field label="이름">
@@ -1484,18 +1490,45 @@ function StudentForm({
           </Field>
         </div>
         <div style={{ flex: 1 }}>
-          <Field label="비밀번호">
+          <Field label="전화번호 (문자 수신)">
             <input
               style={inputBase}
               type="text"
               inputMode="numeric"
-              value={f.password ?? ""}
-              placeholder={isEdit ? "미입력 시 유지" : "부모 번호 등"}
-              onChange={(e) => set("password", e.target.value)}
+              value={f.phone ?? ""}
+              placeholder="01012345678"
+              onChange={(e) => set("phone", e.target.value)}
             />
           </Field>
         </div>
       </div>
+      <Field label={isEdit ? "비밀번호 재설정" : "첫 비밀번호"}>
+        <input
+          style={inputBase}
+          type="text"
+          value={f.password ?? ""}
+          placeholder={
+            isEdit ? "입력한 값으로 새로 설정 (비우면 그대로)" : "비우면 전화번호로 설정"
+          }
+          onChange={(e) => set("password", e.target.value)}
+        />
+        <div style={{ fontSize: 12, color: T.sub, marginTop: 6, lineHeight: 1.6 }}>
+          비밀번호는 <b>암호화되어 저장</b>되어 관리자도 볼 수 없습니다. 잊었다면 여기서 새로
+          설정해 알려 주세요.
+          {isEdit && (
+            <label
+              style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}
+            >
+              <input
+                type="checkbox"
+                checked={!!f.resetParent}
+                onChange={(e) => set("resetParent", e.target.checked)}
+              />
+              학부모 비밀번호도 함께 초기화
+            </label>
+          )}
+        </div>
+      </Field>
       <div style={{ display: "flex", gap: 12 }}>
         <div style={{ flex: 1 }}>
           <Field label="학교">
@@ -1707,8 +1740,8 @@ function AdminStudents({
                 {[
                   "이름",
                   "아이디",
-                  "비밀번호",
-                  "학부모 비번",
+                  "전화번호",
+                  "학부모 계정",
                   "학교",
                   "학년",
                   "과목",
@@ -1762,7 +1795,7 @@ function AdminStudents({
                       fontFamily: "monospace",
                     }}
                   >
-                    {s.password || "—"}
+                    {s.phone || "—"}
                   </td>
                   <td
                     style={{
@@ -1773,16 +1806,11 @@ function AdminStudents({
                     }}
                     title={
                       s.parentChanged
-                        ? "학부모가 직접 바꾼 비밀번호입니다."
-                        : "학생 비밀번호와 동일합니다."
+                        ? "학부모가 직접 비밀번호를 바꿨습니다."
+                        : "학생 비밀번호와 같습니다."
                     }
                   >
-                    {s.parentChanged
-                      ? s.parentPassword || "변경됨"
-                      : s.parentPassword || s.password || "—"}
-                    {s.parentChanged && (
-                      <span style={{ fontSize: 11, marginLeft: 4 }}>(변경)</span>
-                    )}
+                    {s.parentChanged ? "따로 변경됨" : "학생과 동일"}
                   </td>
                   <td style={{ padding: "11px 14px", color: T.sub, whiteSpace: "nowrap" }}>
                     {s.school || "—"}
@@ -2522,6 +2550,9 @@ function AdminWeekly({
   // 성적 카드 이미지 첨부 (MMS)
   const [withImage, setWithImage] = useState(false);
   const [preview, setPreview] = useState<string[] | null>(null);
+  // 성적 링크 첨부 (로그인 없이 그 회차만 보는 만료형 링크)
+  const [withLink, setWithLink] = useState(false);
+  const [linkDays, setLinkDays] = useState(30);
 
   useEffect(() => {
     api
@@ -2538,8 +2569,8 @@ function AdminWeekly({
       return {
         id: s.id,
         name: s.name,
-        num: s.password ?? "",
-        valid: phoneOk(s.password ?? ""),
+        num: s.phone ?? "",
+        valid: phoneOk(s.phone ?? ""),
         blocks,
         text: blocks.length ? buildWeeklyText(blocks) : "",
         student: s,
@@ -2588,6 +2619,30 @@ function AdminWeekly({
     return out;
   };
 
+  /** 고른 회차마다 학생별 공유 링크를 발급받아 "학생|반|날짜 → URL" 로 돌려준다. */
+  const loadLinks = async (): Promise<Record<string, string>> => {
+    const items: { studentId: string; subject: string; date: string }[] = [];
+    for (const it of included) {
+      for (const b of it.blocks) {
+        items.push({ studentId: it.id, subject: b.subject, date: b.dateIso });
+      }
+    }
+    if (!items.length) return {};
+    setNote("성적 링크를 만드는 중…");
+    const d = await api.post("/api/admin/share-links", {
+      term: termId,
+      days: linkDays,
+      items,
+    });
+    const origin = typeof window === "undefined" ? "" : window.location.origin;
+    const out: Record<string, string> = {};
+    for (const l of d.links ?? []) {
+      out[`${l.studentId}|${l.subject}|${l.date}`] = `${origin}/share/${l.token}`;
+    }
+    setNote("");
+    return out;
+  };
+
   const send = async () => {
     setNote("");
     setSummary(null);
@@ -2596,19 +2651,46 @@ function AdminWeekly({
       return;
     }
     const analysis = withImage ? await loadAnalysis() : {};
+    let links: Record<string, string> = {};
+    if (withLink) {
+      try {
+        links = await loadLinks();
+      } catch (e: any) {
+        setNote(`⚠️ ${e?.message || "성적 링크를 만들지 못했습니다."}`);
+        return;
+      }
+    }
+    const linkLines = (it: (typeof included)[number]) =>
+      withLink
+        ? it.blocks
+            .map((b) => {
+              const url = links[`${it.id}|${b.subject}|${b.dateIso}`];
+              return url ? `${md(b.dateIso)} ${b.subject} 성적 보기\n${url}` : "";
+            })
+            .filter(Boolean)
+            .join("\n\n")
+        : "";
+    const withLinks = (text: string, it: (typeof included)[number]) => {
+      const lines = linkLines(it);
+      return lines ? `${text}\n\n${lines}` : text;
+    };
     const msgs = withImage
-      ? included.flatMap((it) =>
-          buildImageMessages(
+      ? included.flatMap((it) => {
+          const list = buildImageMessages(
             it.student,
             it.blocks,
             sessions,
             testMode ? testNumber : it.num,
             analysis
-          )
-        )
+          );
+          // 링크는 첫 통(인사말)에만 붙인다.
+          return list.map((m, i) =>
+            i === 0 ? { ...m, text: withLinks(m.text, it) } : m
+          );
+        })
       : included.map((it) => ({
           to: testMode ? testNumber : it.num,
-          text: it.text,
+          text: withLinks(it.text, it),
         }));
     if (msgs.length === 0) {
       setNote("보낼 대상이 없습니다.");
@@ -2726,6 +2808,64 @@ function AdminWeekly({
             onChange={(e) => setTestNumber(e.target.value)}
           />
         )}
+
+        {/* 성적 링크 첨부 (로그인 없이 보는 만료형 링크) */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+            padding: "10px 12px",
+            background: withLink ? T.primarySoft : "#F6F8FB",
+            borderRadius: 10,
+            marginBottom: 10,
+          }}
+        >
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 14,
+              fontWeight: 700,
+              color: T.ink,
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={withLink}
+              onChange={(e) => setWithLink(e.target.checked)}
+            />
+            <LinkIcon size={16} />
+            성적 링크 첨부
+          </label>
+          <span style={{ fontSize: 12.5, color: T.sub }}>
+            문자 본문에 <b>로그인 없이 그 회차 성적만</b> 보는 링크를 붙입니다. 사진과 달리
+            화질 제한이 없고, 문자 한 통이면 됩니다.
+          </span>
+          <div style={{ flex: 1 }} />
+          <label style={{ fontSize: 12.5, color: T.sub, display: "flex", alignItems: "center", gap: 6 }}>
+            유효기간
+            <input
+              type="number"
+              min={1}
+              max={180}
+              value={linkDays}
+              onChange={(e) => setLinkDays(Math.max(1, Math.min(180, Number(e.target.value) || 30)))}
+              style={{
+                width: 64,
+                padding: "5px 8px",
+                border: `1px solid ${T.line}`,
+                borderRadius: 8,
+                fontSize: 13,
+                fontFamily: FONT,
+              }}
+            />
+            일
+          </label>
+        </div>
 
         {/* 성적 카드 이미지 첨부 (사진 문자) */}
         <div

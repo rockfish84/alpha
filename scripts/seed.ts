@@ -145,7 +145,7 @@ async function main() {
     const hash = await bcrypt.hash(s.password, 10);
     const student = await Student.findOneAndUpdate(
       { username: s.username },
-      { $set: { name: s.name }, $setOnInsert: { password: hash, passwordPlain: s.password } },
+      { $set: { name: s.name }, $setOnInsert: { password: hash, phone: s.password } },
       { upsert: true, new: true }
     );
     await Enrollment.updateOne(

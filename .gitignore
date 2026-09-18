@@ -40,3 +40,5 @@ next-env.d.ts
 *.pdf
 
 /.next-test/
+
+/.next-build/

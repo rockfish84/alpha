@@ -7,8 +7,8 @@ export function serializeStudent(doc: any) {
     id: String(doc._id),
     name: doc.name as string,
     username: doc.username as string,
-    // 관리자 전용 라우트에서만 사용됨 (평문 비밀번호 = 부모 번호)
-    password: (doc.passwordPlain ?? "") as string,
+    // 문자 수신번호. 비밀번호는 해시만 저장하므로 어디로도 나가지 않는다.
+    phone: (doc.phone ?? "") as string,
     grade: (doc.grade ?? "") as string,
     status: doc.status as "재원" | "퇴원",
     subjects: (doc.subjects ?? []) as string[],
@@ -17,20 +17,19 @@ export function serializeStudent(doc: any) {
 
 export type ClientStudent = ReturnType<typeof serializeStudent>;
 
-/** Enrollment + Student(+Parent) -> 학기별 명단 행 (관리자용, 평문 비번 포함). */
+/** Enrollment + Student(+Parent) -> 학기별 명단 행 (관리자용). 비밀번호는 담지 않는다. */
 export function serializeRoster(enr: any, stu: any, parent?: any) {
   return {
     id: String(stu._id), // student id (세션 patch 등에서 사용)
     enrollmentId: String(enr._id),
     name: stu.name as string,
     username: stu.username as string,
-    password: (stu.passwordPlain ?? "") as string,
+    phone: (stu.phone ?? "") as string,
     school: (stu.school ?? "") as string,
     grade: (enr.grade ?? "") as string,
     subjects: (enr.subjects ?? []) as string[],
     status: (enr.status ?? "재원") as "재원" | "퇴원",
-    // 학부모 계정: 아이디는 학생과 같고, 비번은 학부모가 직접 바꿨으면 달라진다.
-    parentPassword: (parent?.passwordPlain ?? "") as string,
+    // 학부모 계정: 아이디는 학생과 같다. 비밀번호는 보여 주지 않고, 바뀌었는지만 알려 준다.
     parentChanged: !!parent?.selfChanged,
     // 관리자 학교 성적 탭에서 조회할 학생의 학교 과목 목록.
     schoolExamResults: serializeSchoolExamResults(enr.schoolExamResults),

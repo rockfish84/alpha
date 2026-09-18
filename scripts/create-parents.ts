@@ -37,7 +37,6 @@ async function main() {
         student: s._id,
         username: s.username,
         password: s.password, // 학생과 같은 해시 (= 같은 비밀번호)
-        passwordPlain: s.passwordPlain ?? "",
         selfChanged: false,
       })),
       { ordered: false }

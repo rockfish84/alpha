@@ -6,7 +6,7 @@ import { T, type Me } from "@/lib/constants";
 import { api } from "@/lib/api";
 import { Btn, Card, Field, SectionTitle, inputBase } from "./ui";
 
-const MIN_LENGTH = 4;
+const MIN_LENGTH = 6;
 
 export function MyPage({ me, onDone }: { me: Me; onDone?: (msg: string) => void }) {
   const [current, setCurrent] = useState("");

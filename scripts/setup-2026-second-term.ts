@@ -601,7 +601,7 @@ async function main(): Promise<void> {
         name: account.name,
         username: account.username,
         password: passwordHashByUsername.get(account.username)!,
-        passwordPlain: parentPhone,
+        phone: parentPhone,
       });
       appliedStudentByUsername.set(account.username, created as unknown as StudentRow);
       studentsCreated++;

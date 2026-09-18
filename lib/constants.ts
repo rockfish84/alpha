@@ -86,9 +86,8 @@ export interface Student {
   enrollmentId?: string; // 이 학기 등록 id (roster 수정/삭제용)
   name: string;
   username: string;
-  password?: string; // 관리자 조회용 평문 (부모 번호)
+  phone?: string; // 문자 수신번호 (학부모 번호) — 비밀번호와 별개
   school?: string; // 재학 중인 학교
-  parentPassword?: string; // 학부모 계정 비밀번호 (학부모가 바꾸면 달라짐)
   parentChanged?: boolean; // 학부모가 직접 비밀번호를 바꿨는지
   grade: string;
   status: "재원" | "퇴원";

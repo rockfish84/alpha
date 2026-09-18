@@ -33,8 +33,8 @@ const StudentSchema = new Schema(
   {
     name: { type: String, required: true },
     username: { type: String, required: true, unique: true },
-    password: { type: String, required: true }, // bcrypt hash
-    passwordPlain: { type: String, default: "" }, // 관리자 조회용 평문
+    password: { type: String, required: true }, // bcrypt hash (평문은 어디에도 저장하지 않는다)
+    phone: { type: String, default: "" }, // 학부모 문자 수신번호 (비밀번호와 별개)
     school: { type: String, default: "" }, // 재학 중인 학교 (예: 둔산여고)
     // legacy(학기 이전) 필드 — 마이그레이션 후 사용 안 함
     grade: { type: String, default: "" },
@@ -195,13 +195,33 @@ const ParentSchema = new Schema(
   {
     student: { type: Schema.Types.ObjectId, ref: "Student", required: true, unique: true },
     username: { type: String, required: true, unique: true },
-    password: { type: String, required: true }, // bcrypt hash
-    passwordPlain: { type: String, default: "" }, // 관리자 조회용 평문
+    password: { type: String, required: true }, // bcrypt hash (평문 저장 안 함)
     // 학부모가 직접 비밀번호를 바꾸기 전까지는 학생 비밀번호와 같이 유지된다.
     selfChanged: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
+
+/* ============================== ShareLink (성적 공유 링크) ==============================
+   문자에 붙이는 "로그인 없이 그 회차 성적만 보는" 만료형 링크.
+   토큰 하나가 (학생 · 학기 · 반 · 날짜) 한 칸만 열어 주고, 만료되면 TTL 인덱스로 사라진다. */
+const ShareLinkSchema = new Schema(
+  {
+    token: { type: String, required: true, unique: true }, // 128비트 난수
+    student: { type: Schema.Types.ObjectId, ref: "Student", required: true },
+    term: { type: Schema.Types.ObjectId, ref: "Term", required: true },
+    subject: { type: String, required: true },
+    date: { type: Date, required: true },
+    expiresAt: { type: Date, required: true },
+    revoked: { type: Boolean, default: false }, // 관리자가 즉시 끊을 수 있다
+    views: { type: Number, default: 0 },
+    lastViewedAt: { type: Date, default: null },
+  },
+  { timestamps: true }
+);
+ShareLinkSchema.index({ student: 1, term: 1, subject: 1, date: 1 });
+// 만료 시각이 지나면 MongoDB 가 문서를 자동으로 지운다 → 링크도 함께 죽는다.
+ShareLinkSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 /* ============================== Admin ============================== */
 const AdminSchema = new Schema({
@@ -217,6 +237,7 @@ export type TestConfigDoc = InferSchemaType<typeof TestConfigSchema>;
 export type BookmarkDoc = InferSchemaType<typeof BookmarkSchema>;
 export type ParentDoc = InferSchemaType<typeof ParentSchema>;
 export type AdminDoc = InferSchemaType<typeof AdminSchema>;
+export type ShareLinkDoc = InferSchemaType<typeof ShareLinkSchema>;
 export type TestQuestionDoc = InferSchemaType<typeof TestQuestionSchema>;
 
 export const Term = (models.Term as Model<TermDoc>) || model("Term", TermSchema);
@@ -236,3 +257,5 @@ export const Parent =
   (models.Parent as Model<ParentDoc>) || model("Parent", ParentSchema);
 export const Admin =
   (models.Admin as Model<AdminDoc>) || model("Admin", AdminSchema);
+export const ShareLink =
+  (models.ShareLink as Model<ShareLinkDoc>) || model("ShareLink", ShareLinkSchema);

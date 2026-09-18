@@ -7,7 +7,7 @@ import { syncParentAccount } from "@/lib/parents";
 
 export const dynamic = "force-dynamic";
 
-const MIN_PASSWORD_LENGTH = 4;
+const MIN_PASSWORD_LENGTH = 6;
 
 // PATCH /api/account/password -> 학생·학부모 본인 비밀번호 변경
 export async function PATCH(req: Request) {
@@ -58,7 +58,6 @@ export async function PATCH(req: Request) {
   }
 
   account.password = await bcrypt.hash(next, 10);
-  account.passwordPlain = next;
   if (g.user.role === "parent") {
     // 스스로 바꾼 뒤로는 학생 비밀번호 변경에 더 이상 끌려가지 않는다.
     (account as any).selfChanged = true;

@@ -48,7 +48,7 @@ export async function POST(req: Request) {
   if (!g.ok) return g.res;
 
   const body = await req.json().catch(() => ({}));
-  const { name, username, password, grade, subjects, status, school } = body;
+  const { name, username, password, phone, grade, subjects, status, school } = body;
   if (!body.term || !name || !username) {
     return NextResponse.json(
       { error: "학기·이름·아이디는 필수입니다." },
@@ -62,9 +62,17 @@ export async function POST(req: Request) {
 
   let student = await Student.findOne({ username });
   if (!student) {
-    if (!password) {
+    // 비밀번호를 따로 주지 않으면 전화번호를 첫 비밀번호로 쓴다(기존 운영 방식).
+    const initial = String(password || phone || "").trim();
+    if (initial && initial.length < 6) {
       return NextResponse.json(
-        { error: "새 계정은 비밀번호가 필요합니다." },
+        { error: "비밀번호는 6자 이상이어야 합니다." },
+        { status: 400 }
+      );
+    }
+    if (!initial) {
+      return NextResponse.json(
+        { error: "새 계정은 비밀번호(또는 전화번호)가 필요합니다." },
         { status: 400 }
       );
     }
@@ -72,17 +80,23 @@ export async function POST(req: Request) {
       name,
       username,
       school: typeof school === "string" ? school : "",
-      password: await bcrypt.hash(password, 10),
-      passwordPlain: password,
+      phone: typeof phone === "string" ? phone : "",
+      password: await bcrypt.hash(initial, 10),
     });
     await ensureParent(student as any);
   } else {
     // 기존 계정: 이름/학교/비번 갱신 (선택)
     if (name) student.name = name;
     if (typeof school === "string") student.school = school;
+    if (typeof phone === "string") student.phone = phone;
     if (password && String(password).trim() !== "") {
+      if (String(password).trim().length < 6) {
+        return NextResponse.json(
+          { error: "비밀번호는 6자 이상이어야 합니다." },
+          { status: 400 }
+        );
+      }
       student.password = await bcrypt.hash(password, 10);
-      student.passwordPlain = password;
     }
     await student.save();
     await ensureParent(student as any);

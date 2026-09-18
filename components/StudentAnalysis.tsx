@@ -477,7 +477,14 @@ function HomeworkRow({
 }
 
 /* ============================== 회차 상세 ============================== */
-function TestDetail({ test }: { test: TestAnalysis }) {
+export function TestDetail({
+  test,
+  hideFiles = false,
+}: {
+  test: TestAnalysis;
+  /** 공유 링크 화면처럼 로그인 없이 보는 곳에서는 시험지·답지 내려받기를 감춘다. */
+  hideFiles?: boolean;
+}) {
   const rows = useMemo(
     () => [...test.questions].sort((a, b) => a.wrongRank - b.wrongRank || a.no - b.no),
     [test.questions]
@@ -509,7 +516,7 @@ function TestDetail({ test }: { test: TestAnalysis }) {
         )}
         {test.detail && <Pill tone="muted">{test.detail}</Pill>}
         <div style={{ flex: 1 }} />
-        <FileLinks test={test} />
+        {!hideFiles && <FileLinks test={test} />}
       </div>
 
       <div
