@@ -2387,6 +2387,20 @@ function buildCardData(
   };
 }
 
+/**
+ * 문자에 넣을 공유 링크의 주소. NEXT_PUBLIC_SITE_URL 이 있으면 그것을,
+ * 없으면 지금 보고 있는 사이트 주소를 쓴다.
+ */
+function shareLinkBase(): string {
+  const env = (process.env.NEXT_PUBLIC_SITE_URL ?? "").trim().replace(/\/$/, "");
+  if (env) return env;
+  return typeof window === "undefined" ? "" : window.location.origin;
+}
+
+function isLocalBase(base: string): boolean {
+  return /localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]/.test(base);
+}
+
 /** 모든 문자에 공통으로 들어가는 인사말 */
 function greetingText(subject: string): string {
   return (
@@ -2621,6 +2635,13 @@ function AdminWeekly({
 
   /** 고른 회차마다 학생별 공유 링크를 발급받아 "학생|반|날짜 → URL" 로 돌려준다. */
   const loadLinks = async (): Promise<Record<string, string>> => {
+    // 문자에 들어갈 주소가 localhost 면 학부모 휴대폰에서 열리지 않는다.
+    if (isLocalBase(shareLinkBase())) {
+      throw new Error(
+        "지금 주소(localhost)로는 문자 속 링크가 휴대폰에서 열리지 않습니다. " +
+          "배포된 사이트 주소로 접속해서 보내거나, .env 에 NEXT_PUBLIC_SITE_URL 을 설정하세요."
+      );
+    }
     const items: { studentId: string; subject: string; date: string }[] = [];
     for (const it of included) {
       for (const b of it.blocks) {
@@ -2634,7 +2655,7 @@ function AdminWeekly({
       days: linkDays,
       items,
     });
-    const origin = typeof window === "undefined" ? "" : window.location.origin;
+    const origin = shareLinkBase();
     const out: Record<string, string> = {};
     for (const l of d.links ?? []) {
       out[`${l.studentId}|${l.subject}|${l.date}`] = `${origin}/share/${l.token}`;
