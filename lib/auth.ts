@@ -35,6 +35,29 @@ export async function requireStudent(): Promise<Guard> {
   return g;
 }
 
+/** 학생 본인 또는 그 학부모 (조회 전용 화면에서 함께 허용). */
+export type ViewerGuard =
+  | { ok: true; user: SessionUser; studentId: string; isParent: boolean }
+  | { ok: false; res: NextResponse };
+
+export async function requireViewer(): Promise<ViewerGuard> {
+  const g = await requireUser();
+  if (!g.ok) return g;
+  if (g.user.role === "student") {
+    return { ok: true, user: g.user, studentId: g.user.id, isParent: false };
+  }
+  if (g.user.role === "parent" && g.user.studentId) {
+    return { ok: true, user: g.user, studentId: g.user.studentId, isParent: true };
+  }
+  return {
+    ok: false,
+    res: NextResponse.json(
+      { error: "학생 또는 학부모 권한이 필요합니다." },
+      { status: 403 }
+    ),
+  };
+}
+
 export async function requireAdmin(): Promise<Guard> {
   const g = await requireUser();
   if (!g.ok) return g;

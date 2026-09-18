@@ -33,7 +33,7 @@ export default function Page() {
   }, []);
 
   const login = async (
-    role: "student" | "admin",
+    role: "student" | "parent" | "admin",
     username: string,
     password: string
   ) => {
@@ -84,7 +84,7 @@ export default function Page() {
 
   if (!auth) return <Login onLogin={login} error={error} />;
 
-  if (auth.role === "student") {
+  if (auth.role === "student" || auth.role === "parent") {
     return <StudentPortal me={auth} onLogout={logout} />;
   }
 

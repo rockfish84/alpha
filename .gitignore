@@ -32,3 +32,11 @@ next-env.d.ts
 *.xlsx
 *.xls
 *.csv
+
+# pdf.js 워커 (빌드 시 node_modules 에서 자동 복사)
+/public/pdf.worker.min.mjs
+
+# 시험지/해설지 원본 (앱에서 업로드해 쓰므로 저장소에는 넣지 않음)
+*.pdf
+
+/.next-test/

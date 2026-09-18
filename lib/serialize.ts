@@ -17,8 +17,8 @@ export function serializeStudent(doc: any) {
 
 export type ClientStudent = ReturnType<typeof serializeStudent>;
 
-/** Enrollment + Student -> 학기별 명단 행 (관리자용, 평문 비번 포함). */
-export function serializeRoster(enr: any, stu: any) {
+/** Enrollment + Student(+Parent) -> 학기별 명단 행 (관리자용, 평문 비번 포함). */
+export function serializeRoster(enr: any, stu: any, parent?: any) {
   return {
     id: String(stu._id), // student id (세션 patch 등에서 사용)
     enrollmentId: String(enr._id),
@@ -28,6 +28,9 @@ export function serializeRoster(enr: any, stu: any) {
     grade: (enr.grade ?? "") as string,
     subjects: (enr.subjects ?? []) as string[],
     status: (enr.status ?? "재원") as "재원" | "퇴원",
+    // 학부모 계정: 아이디는 학생과 같고, 비번은 학부모가 직접 바꿨으면 달라진다.
+    parentPassword: (parent?.passwordPlain ?? "") as string,
+    parentChanged: !!parent?.selfChanged,
     // 관리자 학교 성적 탭에서 조회할 학생의 학교 과목 목록.
     schoolExamResults: serializeSchoolExamResults(enr.schoolExamResults),
   };
@@ -60,11 +63,13 @@ export function serializeSession(
     testScore: (doc.testScore ?? null) as number | null,
     testMaxOverride: (doc.testMaxOverride ?? null) as number | null,
     testDetail: (doc.testDetail ?? "") as string,
+    testAuto: !!doc.testAuto,
+    testScale100: !!doc.testScale100,
     solved: (doc.solved ?? "") as string,
     adminNote: (doc.adminNote ?? "") as string,
-    // 유효 만점: 학생별 override > 반 설정 > 기본 10
+    // 유효 만점: 학생별 override > 반 설정 > 기본 100 (테스트는 100점 만점)
     max: (doc.testMaxOverride ??
-      (maxMap ? maxMap[`${date}|${subject}`] ?? 10 : 10)) as number,
+      (maxMap ? maxMap[`${date}|${subject}`] ?? 100 : 100)) as number,
   };
 }
 

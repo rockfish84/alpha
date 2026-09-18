@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { dbConnect } from "@/lib/db";
-import { Student, Enrollment } from "@/lib/models";
+import { Student, Enrollment, Parent } from "@/lib/models";
 import { requireAdmin } from "@/lib/auth";
 import { resolveTerm } from "@/lib/term";
 import { serializeRoster } from "@/lib/serialize";
+import { ensureParent, syncParentAccount } from "@/lib/parents";
 
 export const dynamic = "force-dynamic";
 
@@ -19,16 +20,22 @@ export async function GET(req: Request) {
   if (!term) return NextResponse.json([]);
 
   const enrollments = await Enrollment.find({ term: term._id }).lean();
-  const students = await Student.find({
-    _id: { $in: enrollments.map((e) => e.student) },
-  }).lean();
+  const studentIds = enrollments.map((e) => e.student);
+  const [students, parents] = await Promise.all([
+    Student.find({ _id: { $in: studentIds } }).lean(),
+    Parent.find({ student: { $in: studentIds } }).lean(),
+  ]);
   const stuById: Record<string, any> = {};
   for (const s of students) stuById[String(s._id)] = s;
+  const parentByStudent: Record<string, any> = {};
+  for (const p of parents) parentByStudent[String(p.student)] = p;
 
   const rows = enrollments
     .map((e) => {
       const stu = stuById[String(e.student)];
-      return stu ? serializeRoster(e, stu) : null;
+      return stu
+        ? serializeRoster(e, stu, parentByStudent[String(e.student)])
+        : null;
     })
     .filter(Boolean);
 
@@ -67,6 +74,7 @@ export async function POST(req: Request) {
       password: await bcrypt.hash(password, 10),
       passwordPlain: password,
     });
+    await ensureParent(student as any);
   } else {
     // 기존 계정: 이름/비번 갱신 (선택)
     if (name) student.name = name;
@@ -75,6 +83,11 @@ export async function POST(req: Request) {
       student.passwordPlain = password;
     }
     await student.save();
+    await ensureParent(student as any);
+    // 비번을 바꿨으면 아직 스스로 바꾸지 않은 학부모 계정도 같이 맞춘다.
+    if (password && String(password).trim() !== "") {
+      await syncParentAccount(student as any);
+    }
   }
 
   const enr = await Enrollment.findOneAndUpdate(
@@ -89,5 +102,8 @@ export async function POST(req: Request) {
     { upsert: true, new: true }
   ).lean();
 
-  return NextResponse.json(serializeRoster(enr, student.toObject()), { status: 201 });
+  const parent = await Parent.findOne({ student: student._id }).lean();
+  return NextResponse.json(serializeRoster(enr, student.toObject(), parent), {
+    status: 201,
+  });
 }

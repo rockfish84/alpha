@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Send,
   FileText,
+  PenLine,
 } from "lucide-react";
 import {
   T,
@@ -48,6 +49,7 @@ import {
   lbl,
 } from "./ui";
 import { Shell, type NavItem } from "./Shell";
+import { AdminScores } from "./AdminScores";
 
 /* ============================== VIEW STATE 저장 ==============================
    선택한 탭·날짜·과목을 브라우저에 저장 → 새로고침해도 보던 화면 유지. */
@@ -204,6 +206,44 @@ function ResponseDetail({ r }: { r: ClinicSession }) {
       <Row k="질문 유형" v={types} />
       <Row k="특별 요청" v={r.request} />
     </div>
+  );
+}
+
+/* 테스트 점수는 이제 "성적 입력" 탭의 답안 자동 채점으로만 들어온다.
+   클리닉 현황·테스트/과제에서는 결과만 보여준다. */
+function ScoreView({
+  score,
+  max,
+  auto,
+}: {
+  score: number | null | undefined;
+  max: number | null | undefined;
+  auto?: boolean;
+}) {
+  if (score == null) {
+    return <span style={{ color: T.muted, fontSize: 13.5 }}>—</span>;
+  }
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "baseline",
+        gap: 3,
+        fontWeight: 800,
+        color: T.ink,
+        fontSize: 14,
+        whiteSpace: "nowrap",
+      }}
+      title={auto ? "답안 자동 채점 결과" : "이전에 직접 입력한 점수"}
+    >
+      {score}
+      <span style={{ color: T.muted, fontWeight: 500, fontSize: 12.5 }}>
+        / {max ?? "?"}
+      </span>
+      {auto && (
+        <span style={{ color: T.ok, fontWeight: 700, fontSize: 11 }}>자동</span>
+      )}
+    </span>
   );
 }
 
@@ -622,40 +662,12 @@ const BoardRow = React.memo(function BoardRow({
       <td style={{ padding: "10px 12px" }}>
         <HwToggles value={r?.hwSsen} onSet={(v) => patch({ hwSsen: v })} />
       </td>
-      <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <LazyInput
-            inputMode="decimal"
-            value={r?.testScore == null ? "" : String(r.testScore)}
-            placeholder="-"
-            onType={onEditing}
-            onCommit={(v) => {
-              const n = toNum(v);
-              if (n !== undefined) patch({ testScore: n });
-            }}
-            style={{ ...inputBase, width: 52, padding: "6px 8px", textAlign: "center" }}
-          />
-          <span style={{ color: T.muted, fontSize: 13 }}>/</span>
-          <LazyInput
-            inputMode="decimal"
-            title="이 학생 만점 (반과 다를 때만 수정)"
-            value={r?.testMaxOverride == null ? String(max) : String(r.testMaxOverride)}
-            onType={onEditing}
-            onCommit={(v) => {
-              const n = toNum(v);
-              if (n !== undefined)
-                patch({ testMaxOverride: n === null || n === max ? null : n });
-            }}
-            style={{
-              ...inputBase,
-              width: 44,
-              padding: "6px 6px",
-              textAlign: "center",
-              color: r?.testMaxOverride != null ? T.primary : T.muted,
-              fontWeight: r?.testMaxOverride != null ? 700 : 400,
-            }}
-          />
-        </div>
+      <td style={{ padding: "10px 12px", whiteSpace: "nowrap", textAlign: "center" }}>
+        <ScoreView
+          score={r?.testScore}
+          max={r?.testMaxOverride ?? max}
+          auto={!!r?.testAuto}
+        />
       </td>
       <td style={{ padding: "10px 12px" }}>
         <LazyInput
@@ -864,19 +876,20 @@ function AdminBoard({
             </select>
           </div>
           <div style={{ minWidth: 130 }}>
-            <div style={lbl}>테스트 만점 개수 (기본 10)</div>
-            <LazyInput
-              inputMode="decimal"
-              style={inputBase}
-              value={String(max)}
-              placeholder="10"
-              disabled={!hasClinicDate}
-              onType={onEditing}
-              onCommit={(v) => {
-                const n = toNum(v);
-                if (n !== undefined) onSetTestMax(date, subject, n);
+            <div style={lbl}>테스트 만점</div>
+            <div
+              style={{
+                ...inputBase,
+                display: "flex",
+                alignItems: "center",
+                background: "#F6F8FB",
+                color: T.sub,
+                fontWeight: 700,
               }}
-            />
+              title="만점은 성적 입력 탭의 배점 합으로 자동 계산됩니다."
+            >
+              {max}점
+            </div>
           </div>
           <div style={{ minWidth: 180, flex: 1 }}>
             <div style={lbl}>테스트 문항 (반 공통)</div>
@@ -1153,38 +1166,12 @@ const QuickCard = React.memo(function QuickCard({
         </div>
 
         <div>
-          <div style={{ ...lbl, marginBottom: 5 }}>테스트</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <LazyInput
-              inputMode="decimal"
-              value={r?.testScore == null ? "" : String(r.testScore)}
-              placeholder="-"
-              onType={onEditing}
-              onCommit={(v) => {
-                const n = toNum(v);
-                if (n !== undefined) patch({ testScore: n });
-              }}
-              style={{ ...inputBase, width: 60, padding: "8px", textAlign: "center" }}
-            />
-            <span style={{ color: T.muted, fontSize: 14 }}>/</span>
-            <LazyInput
-              inputMode="decimal"
-              title="이 학생 만점 (반과 다를 때만 수정)"
-              value={r?.testMaxOverride == null ? String(max) : String(r.testMaxOverride)}
-              onType={onEditing}
-              onCommit={(v) => {
-                const n = toNum(v);
-                if (n !== undefined)
-                  patch({ testMaxOverride: n === null || n === max ? null : n });
-              }}
-              style={{
-                ...inputBase,
-                width: 52,
-                padding: "8px",
-                textAlign: "center",
-                color: r?.testMaxOverride != null ? T.primary : T.muted,
-                fontWeight: r?.testMaxOverride != null ? 700 : 400,
-              }}
+          <div style={{ ...lbl, marginBottom: 5 }}>테스트 (자동 채점)</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, minHeight: 30 }}>
+            <ScoreView
+              score={r?.testScore}
+              max={r?.testMaxOverride ?? max}
+              auto={!!r?.testAuto}
             />
           </div>
         </div>
@@ -1282,7 +1269,7 @@ function AdminQuickGrade({
 
   return (
     <div style={{ maxWidth: 560 }}>
-      <SectionTitle>테스트 · 과제 빠른 입력</SectionTitle>
+      <SectionTitle>과제 빠른 입력 · 테스트 결과</SectionTitle>
 
       <Card style={{ padding: 14, marginBottom: 14 }}>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -1325,17 +1312,20 @@ function AdminQuickGrade({
             </select>
           </div>
           <div style={{ width: 110 }}>
-            <div style={lbl}>만점 (기본 10)</div>
-            <LazyInput
-              inputMode="decimal"
-              style={inputBase}
-              value={String(max)}
-              disabled={!hasClinicDate}
-              onCommit={(v) => {
-                const n = toNum(v);
-                if (n !== undefined) onSetTestMax(date, subject, n);
+            <div style={lbl}>만점</div>
+            <div
+              style={{
+                ...inputBase,
+                display: "flex",
+                alignItems: "center",
+                background: "#F6F8FB",
+                color: T.sub,
+                fontWeight: 700,
               }}
-            />
+              title="만점은 성적 입력 탭의 배점 합으로 자동 계산됩니다."
+            >
+              {max}점
+            </div>
           </div>
           <label
             style={{
@@ -1668,6 +1658,7 @@ function AdminStudents({
                   "이름",
                   "아이디",
                   "비밀번호",
+                  "학부모 비번",
                   "학년",
                   "과목",
                   "상태",
@@ -1721,6 +1712,26 @@ function AdminStudents({
                     }}
                   >
                     {s.password || "—"}
+                  </td>
+                  <td
+                    style={{
+                      padding: "11px 14px",
+                      color: s.parentChanged ? T.warn : T.sub,
+                      fontFamily: "monospace",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={
+                      s.parentChanged
+                        ? "학부모가 직접 바꾼 비밀번호입니다."
+                        : "학생 비밀번호와 동일합니다."
+                    }
+                  >
+                    {s.parentChanged
+                      ? s.parentPassword || "변경됨"
+                      : s.parentPassword || s.password || "—"}
+                    {s.parentChanged && (
+                      <span style={{ fontSize: 11, marginLeft: 4 }}>(변경)</span>
+                    )}
                   </td>
                   <td style={{ padding: "11px 14px", color: T.sub }}>
                     {s.grade}
@@ -3140,6 +3151,12 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
     };
   }, [tab, termId, term?.schoolExamInput]);
 
+  // 성적 입력 탭에서 고른 반·날짜도 다른 탭과 함께 기억한다.
+  const rememberSelection = React.useCallback((subject: string, date: string) => {
+    if (subject) ls.set(LS_SUBJECT, subject);
+    if (date) ls.set(LS_DATE, date);
+  }, []);
+
   // 입력 중 표시(자동 새로고침 억제용). 키 입력마다 호출돼도 가볍게 ref 만 갱신.
   const markEditing = React.useCallback(() => {
     lastEditRef.current = Date.now();
@@ -3186,6 +3203,8 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
           testScore: null,
           testMaxOverride: null,
           testDetail: "",
+          testAuto: false,
+          testScale100: true,
           solved: "",
           adminNote: "",
           max: null,
@@ -3346,6 +3365,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
   const NAV: NavItem[] = [
     { k: "board", label: "클리닉 현황", icon: <CalendarDays size={18} /> },
     { k: "quick", label: "테스트·과제", icon: <ClipboardCheck size={18} /> },
+    { k: "scores", label: "성적 입력", icon: <PenLine size={18} /> },
     { k: "weekly", label: "주간 안내 문자", icon: <Send size={18} /> },
     { k: "students", label: "학생 관리", icon: <Users size={18} /> },
     { k: "schoolExams", label: "학교 성적 관리", icon: <FileText size={18} /> },
@@ -3451,6 +3471,20 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                   onSetAdminFields={setAdminFields}
                   onSetTestMax={setTestMaxFor}
                   onEditing={markEditing}
+                />
+              )}
+              {tab === "scores" && term && (
+                <AdminScores
+                  key={termId}
+                  termId={termId}
+                  students={students}
+                  subjects={subjects}
+                  closedSubjects={term?.closedSubjects}
+                  clinicDates={clinicDates}
+                  clinicDatesBySubject={term?.clinicDatesBySubject}
+                  initialSubject={ls.get(LS_SUBJECT) ?? ""}
+                  initialDate={ls.get(LS_DATE) ?? ""}
+                  onSelection={rememberSelection}
                 />
               )}
               {tab === "weekly" && (

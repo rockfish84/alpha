@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { dbConnect } from "@/lib/db";
 import { Session, Enrollment } from "@/lib/models";
-import { requireStudent } from "@/lib/auth";
+import { requireStudent, requireViewer } from "@/lib/auth";
 import { serializeSession } from "@/lib/serialize";
 import { buildMaxMap } from "@/lib/testconfig";
 import { resolveTerm } from "@/lib/term";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 // GET /api/sessions?term=ID&subject=&from=&to=  -> 그 학기 내 클리닉 이력
 export async function GET(req: Request) {
-  const g = await requireStudent();
+  const g = await requireViewer();
   if (!g.ok) return g.res;
 
   await dbConnect();
@@ -21,7 +21,7 @@ export async function GET(req: Request) {
   const term = await resolveTerm(searchParams.get("term"));
   if (!term) return NextResponse.json([]);
 
-  const query: Record<string, any> = { student: g.user.id, term: term._id };
+  const query: Record<string, any> = { student: g.studentId, term: term._id };
   const subject = searchParams.get("subject");
   if (subject) query.subject = subject;
 

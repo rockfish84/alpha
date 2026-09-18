@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { LogOut, User, Shield, GraduationCap } from "lucide-react";
+import { LogOut, User, Shield, GraduationCap, Users } from "lucide-react";
 import { T, FONT } from "@/lib/constants";
 import { Btn } from "./ui";
 
@@ -21,7 +21,7 @@ export function Shell({
   children,
   onLogout,
 }: {
-  role: "student" | "admin";
+  role: "student" | "admin" | "parent";
   name: string;
   sub: string;
   nav: NavItem[];
@@ -79,7 +79,11 @@ export function Shell({
                 더브코 <span style={{ color: T.accent }}>알파 클리닉</span>
               </div>
               <div style={{ fontSize: 11.5, color: T.muted }}>
-                {role === "admin" ? "관리자 콘솔" : "학생 포털"}
+                {role === "admin"
+                  ? "관리자 콘솔"
+                  : role === "parent"
+                  ? "학부모 포털"
+                  : "학생 포털"}
               </div>
             </div>
           </div>
@@ -90,7 +94,8 @@ export function Shell({
                   width: 32,
                   height: 32,
                   borderRadius: 999,
-                  background: role === "admin" ? T.warnSoft : T.primarySoft,
+                  background:
+                  role === "admin" || role === "parent" ? T.warnSoft : T.primarySoft,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -98,6 +103,8 @@ export function Shell({
               >
                 {role === "admin" ? (
                   <Shield size={16} color={T.warn} />
+                ) : role === "parent" ? (
+                  <Users size={16} color={T.warn} />
                 ) : (
                   <User size={16} color={T.primary} />
                 )}

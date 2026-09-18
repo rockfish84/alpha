@@ -20,10 +20,15 @@ import {
   Trash2,
   FileText,
   Plus,
+  BarChart3,
+  Target,
+  AlertTriangle,
+  UserCog,
 } from "lucide-react";
 import {
   T,
   md,
+  isViewerOnly,
   SOURCE_OPTS,
   QTYPE_OPTS,
   blankSession,
@@ -55,8 +60,18 @@ import {
   LazyInput,
 } from "./ui";
 import { Shell, type NavItem } from "./Shell";
+import {
+  TestScoresTab,
+  QuestionAnalysisTab,
+  WrongNoteTab,
+} from "./StudentAnalysis";
+import { MyPage } from "./MyPage";
+import { bookmarkKey, type TestAnalysis } from "@/lib/analysis-types";
 
 type FormState = ClinicSession & { _existing?: boolean };
+
+/** 회차별 테스트 분석 데이터를 쓰는 탭들. */
+const ANALYSIS_TABS = ["scores", "questions", "wrong"];
 
 /* ============================== CLINIC FORM ============================== */
 function ClinicForm({
@@ -870,7 +885,16 @@ export function StudentPortal({
     [subjects, term?.active, term?.schoolExamInput]
   );
 
-  const [tab, setTab] = useState("input");
+  const viewerOnly = isViewerOnly(me.role); // 학부모 = 조회 전용
+  const [tab, setTab] = useState(viewerOnly ? "scores" : "input");
+  // 회차별 테스트 분석 (탭을 처음 열 때 학기별로 한 번 불러온다)
+  const [analysis, setAnalysis] = useState<TestAnalysis[]>([]);
+  const [analysisTermId, setAnalysisTermId] = useState("");
+  const [typeOrder, setTypeOrder] = useState<Record<string, string[]>>({});
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisErr, setAnalysisErr] = useState("");
+  // 오답 노트 별표 (학생이 표시한 다시 볼 문항)
+  const [bookmarks, setBookmarks] = useState<Set<string>>(new Set());
   const [subject, setSubject] = useState(
     () => openSubjects(term)[0] ?? subjects[0] ?? ""
   );
@@ -889,10 +913,11 @@ export function StudentPortal({
   const showToast = (msg: string) => setToast({ id: Date.now(), msg });
 
   useEffect(() => {
-    if (tab === "schoolExams" && schoolExamClasses.length === 0) {
-      setTab("input");
+    if (tab === "schoolExams" && (viewerOnly || schoolExamClasses.length === 0)) {
+      setTab(viewerOnly ? "scores" : "input");
     }
-  }, [tab, schoolExamClasses.length]);
+    if (tab === "input" && viewerOnly) setTab("scores");
+  }, [tab, viewerOnly, schoolExamClasses.length]);
 
   // 이력·통계에서 종료된 반을 보다가 입력 탭으로 오면 진행 중인 반으로 되돌린다.
   useEffect(() => {
@@ -950,6 +975,64 @@ export function StudentPortal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [termId]);
 
+  useEffect(() => {
+    if (!term || !ANALYSIS_TABS.includes(tab)) return;
+    if (analysisTermId === term.id) return;
+    let cancelled = false;
+    setAnalysisLoading(true);
+    setAnalysisErr("");
+    Promise.all([
+      api.get(`/api/analysis?term=${term.id}`),
+      api.get(`/api/bookmarks?term=${term.id}`).catch(() => []),
+    ])
+      .then(([d, marks]) => {
+        if (cancelled) return;
+        setAnalysis(d.tests ?? []);
+        setTypeOrder(d.typeOrder ?? {});
+        setBookmarks(new Set((marks ?? []).map((b: any) => bookmarkKey(b))));
+        setAnalysisTermId(term.id);
+      })
+      .catch((e: any) => {
+        if (!cancelled) setAnalysisErr(e.message || "성적 분석을 불러오지 못했습니다.");
+      })
+      .finally(() => {
+        if (!cancelled) setAnalysisLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, termId, term?.id, analysisTermId]);
+
+  // 학기를 바꾸면 그 학기 분석을 새로 받을 때까지 이전 학기 결과를 쓰지 않는다.
+  const analysisReady = !!term && analysisTermId === term.id;
+
+  /** 오답 노트 별표 켜기/끄기 (화면 먼저 바꾸고 서버 반영) */
+  const toggleBookmark = React.useCallback(
+    async (row: { subject: string; date: string; label: string }, on: boolean) => {
+      if (!term) return;
+      const key = bookmarkKey(row);
+      setBookmarks((prev) => {
+        const next = new Set(prev);
+        if (on) next.add(key);
+        else next.delete(key);
+        return next;
+      });
+      try {
+        await api.put("/api/bookmarks", { term: term.id, ...row, on });
+      } catch (e: any) {
+        setBookmarks((prev) => {
+          const next = new Set(prev);
+          if (on) next.delete(key);
+          else next.add(key);
+          return next;
+        });
+        alert(e.message || "별표를 저장하지 못했습니다.");
+      }
+    },
+    [term]
+  );
+
   const mine = sessions;
   const current = mine.find((s) => s.date === date && s.subject === subject);
   const readOnly = !term?.active; // 지난 학기는 조회 전용
@@ -1000,18 +1083,30 @@ export function StudentPortal({
   };
 
   const NAV: NavItem[] = [
-    { k: "input", label: "클리닉 입력", icon: <ClipboardList size={18} /> },
-    ...(schoolExamClasses.length
-      ? [
+    ...(viewerOnly
+      ? []
+      : [
           {
-            k: "schoolExams",
-            label: "1학기 성적 입력",
-            icon: <FileText size={18} />,
+            k: "input",
+            label: "클리닉 입력",
+            icon: <ClipboardList size={18} />,
           },
-        ]
-      : []),
-    { k: "history", label: "내 이력", icon: <History size={18} /> },
-    { k: "stats", label: "통계", icon: <TrendingUp size={18} /> },
+          ...(schoolExamClasses.length
+            ? [
+                {
+                  k: "schoolExams",
+                  label: "1학기 성적 입력",
+                  icon: <FileText size={18} />,
+                },
+              ]
+            : []),
+        ]),
+    { k: "history", label: viewerOnly ? "클리닉 이력" : "내 이력", icon: <History size={18} /> },
+    { k: "stats", label: "전체 통계", icon: <TrendingUp size={18} /> },
+    { k: "scores", label: "테스트 성적", icon: <BarChart3 size={18} /> },
+    { k: "questions", label: "문항 분석", icon: <Target size={18} /> },
+    { k: "wrong", label: "오답 노트", icon: <AlertTriangle size={18} /> },
+    { k: "mypage", label: "마이페이지", icon: <UserCog size={18} /> },
   ];
 
   const handleSchoolExamSaved = (
@@ -1072,15 +1167,17 @@ export function StudentPortal({
   return (
     <>
     <Shell
-      role="student"
-      name={me.name}
+      role={viewerOnly ? "parent" : "student"}
+      name={viewerOnly ? `${me.studentName ?? me.name} 학부모` : me.name}
       sub={`${term?.grade ?? ""}${term ? " · " : ""}${subjects.join(", ")}`}
       nav={NAV}
       tab={tab}
       setTab={setTab}
       onLogout={onLogout}
     >
-      {terms.length === 0 ? (
+      {tab === "mypage" ? (
+        <MyPage me={me} onDone={showToast} />
+      ) : terms.length === 0 ? (
         <div style={{ padding: 40, color: T.muted }}>
           등록된 학기가 없습니다. 선생님께 문의하세요.
         </div>
@@ -1091,7 +1188,7 @@ export function StudentPortal({
       ) : (
         <>
           {termBar}
-          {tab === "input" && (
+          {tab === "input" && !viewerOnly && (
             <div style={{ maxWidth: 640 }}>
               <SectionTitle>클리닉 입력</SectionTitle>
               {readOnly ? (
@@ -1192,7 +1289,49 @@ export function StudentPortal({
               subjects={subjects}
             />
           )}
-          {tab === "schoolExams" && schoolExamClasses.length > 0 && term && (
+          {ANALYSIS_TABS.includes(tab) &&
+            (analysisErr ? (
+              <div style={{ padding: 40, color: T.bad }}>{analysisErr}</div>
+            ) : analysisLoading || !analysisReady ? (
+              <div style={{ padding: 40, color: T.muted }}>성적 분석을 불러오는 중…</div>
+            ) : (
+              <>
+                {tab === "scores" && (
+                  <TestScoresTab
+                    tests={analysis}
+                    subject={subject}
+                    setSubject={setSubject}
+                    subjects={subjects}
+                  />
+                )}
+                {tab === "questions" && (
+                  <QuestionAnalysisTab
+                    tests={analysis}
+                    subject={subject}
+                    setSubject={setSubject}
+                    subjects={subjects}
+                    typeOrder={typeOrder[subject] ?? []}
+                    bookmarks={bookmarks}
+                    canBookmark={!viewerOnly}
+                    onToggleBookmark={toggleBookmark}
+                  />
+                )}
+                {tab === "wrong" && (
+                  <WrongNoteTab
+                    tests={analysis}
+                    subject={subject}
+                    setSubject={setSubject}
+                    subjects={subjects}
+                    termId={term?.id ?? ""}
+                    typeOrder={typeOrder[subject] ?? []}
+                    bookmarks={bookmarks}
+                    canBookmark={!viewerOnly}
+                    onToggleBookmark={toggleBookmark}
+                  />
+                )}
+              </>
+            ))}
+          {tab === "schoolExams" && !viewerOnly && schoolExamClasses.length > 0 && term && (
             <div style={{ maxWidth: 860 }}>
               <SectionTitle>1학기 성적 입력</SectionTitle>
               <Card

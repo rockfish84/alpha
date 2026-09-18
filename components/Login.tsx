@@ -9,10 +9,10 @@ export function Login({
   onLogin,
   error,
 }: {
-  onLogin: (role: "student" | "admin", u: string, p: string) => void;
+  onLogin: (role: "student" | "parent" | "admin", u: string, p: string) => void;
   error: string;
 }) {
-  const [mode, setMode] = useState<"student" | "admin">("student");
+  const [mode, setMode] = useState<"student" | "parent" | "admin">("student");
   const [u, setU] = useState("");
   const [p, setP] = useState("");
   const submit = () => onLogin(mode, u, p);
@@ -79,6 +79,7 @@ export function Login({
             {(
               [
                 ["student", "학생"],
+                ["parent", "학부모"],
                 ["admin", "관리자"],
               ] as const
             ).map(([k, l]) => (
@@ -88,6 +89,7 @@ export function Login({
                 style={{
                   flex: 1,
                   padding: "9px 0",
+                  whiteSpace: "nowrap",
                   borderRadius: 8,
                   border: "none",
                   cursor: "pointer",
@@ -113,12 +115,28 @@ export function Login({
           <input
             style={{ ...inputBase, marginBottom: 6 }}
             type="password"
-            inputMode={mode === "student" ? "numeric" : undefined}
+            inputMode={mode === "admin" ? undefined : "numeric"}
             placeholder="비밀번호"
             value={p}
             onChange={(e) => setP(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
+          {mode === "parent" && (
+            <div
+              style={{
+                fontSize: 12.5,
+                color: T.sub,
+                background: "#F6F8FB",
+                borderRadius: 9,
+                padding: "9px 11px",
+                margin: "8px 0 2px",
+                lineHeight: 1.55,
+              }}
+            >
+              학부모 계정은 <b>자녀의 아이디·비밀번호</b>로 처음 로그인합니다. 로그인 후
+              마이페이지에서 학부모 전용 비밀번호로 바꿀 수 있어요.
+            </div>
+          )}
           {error && (
             <div
               style={{

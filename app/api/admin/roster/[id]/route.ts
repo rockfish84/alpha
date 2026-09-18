@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { dbConnect } from "@/lib/db";
-import { Student, Enrollment, Session } from "@/lib/models";
+import { Student, Enrollment, Session, Parent } from "@/lib/models";
 import { requireAdmin } from "@/lib/auth";
 import { serializeRoster } from "@/lib/serialize";
+import { ensureParent, syncParentAccount } from "@/lib/parents";
 
 export const dynamic = "force-dynamic";
 
@@ -45,8 +46,15 @@ export async function PATCH(
     stuChanged = true;
   }
   if (stuChanged) await student.save();
+  await ensureParent(student as any);
+  if (typeof body.password === "string" && body.password.trim() !== "") {
+    await syncParentAccount(student as any);
+  }
 
-  return NextResponse.json(serializeRoster(enr.toObject(), student.toObject()));
+  const parent = await Parent.findOne({ student: student._id }).lean();
+  return NextResponse.json(
+    serializeRoster(enr.toObject(), student.toObject(), parent)
+  );
 }
 
 // DELETE /api/admin/roster/:enrollmentId       -> 이 학기에서만 제외
@@ -70,6 +78,7 @@ export async function DELETE(
     await Promise.all([
       Enrollment.deleteMany({ student: studentId }),
       Session.deleteMany({ student: studentId }),
+      Parent.deleteMany({ student: studentId }),
       Student.findByIdAndDelete(studentId),
     ]);
     return NextResponse.json({ ok: true, account: true });

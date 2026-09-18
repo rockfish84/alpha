@@ -71,6 +71,15 @@ export function pickDefaultDate(dates: string[]): string {
   return upcoming.length ? upcoming[0] : sorted[sorted.length - 1];
 }
 
+/** 채점·성적 입력용 기본 날짜: 오늘 포함 지난 회차 중 가장 최근, 없으면 가장 이른 날. */
+export function pickGradingDate(dates: string[]): string {
+  if (!dates.length) return "";
+  const sorted = [...dates].sort();
+  const t = todayIso();
+  const past = sorted.filter((d) => d <= t);
+  return past.length ? past[past.length - 1] : sorted[0];
+}
+
 /* ============================== CLIENT TYPES ============================== */
 export interface Student {
   id: string; // student 계정 id
@@ -78,6 +87,8 @@ export interface Student {
   name: string;
   username: string;
   password?: string; // 관리자 조회용 평문 (부모 번호)
+  parentPassword?: string; // 학부모 계정 비밀번호 (학부모가 바꾸면 달라짐)
+  parentChanged?: boolean; // 학부모가 직접 비밀번호를 바꿨는지
   grade: string;
   status: "재원" | "퇴원";
   subjects: string[];
@@ -93,6 +104,7 @@ export interface TermInfo {
   clinicDatesBySubject?: Record<string, string[]>;
   subjects: string[];
   closedSubjects?: string[]; // 종료 처리된 반 (학기는 진행중이어도 이 반만 종료)
+  typeOrderBySubject?: Record<string, string[]>; // 반별 유형(출제 단원) 순서
   grade?: string; // 학생 포털: 이 학기 내 학년
   startDate?: string;
   endDate?: string;
@@ -121,17 +133,25 @@ export interface ClinicSession {
   testScore: number | null;
   testMaxOverride: number | null; // 이 학생만 다른 만점 (없으면 반 기본값)
   testDetail: string; // 테스트 문항 (예: 3,6,9번)
+  testAuto: boolean; // 점수가 답안 자동 채점 결과인지
+  testScale100: boolean; // 점수가 100점 환산 값인지
   solved: string;
   adminNote: string; // 비고 / 특이사항
   max: number | null; // 유효 만점 (override > 반 설정 > 10)
 }
 
 export interface Me {
-  role: "student" | "admin";
+  role: "student" | "admin" | "parent";
   id: string;
-  name: string;
-  terms?: TermInfo[]; // 학생: 등록된 학기들 (최신순)
+  name: string; // 학부모 계정도 자녀 이름으로 표시
+  username?: string;
+  studentId?: string;
+  studentName?: string;
+  terms?: TermInfo[]; // 학생·학부모: 등록된 학기들 (최신순)
 }
+
+/** 학부모는 조회만 가능하다. */
+export const isViewerOnly = (role: Me["role"]) => role === "parent";
 
 export interface Stats {
   hwRate: number;
@@ -171,6 +191,8 @@ export function blankSession(
     testScore: null,
     testMaxOverride: null,
     testDetail: "",
+    testAuto: false,
+    testScale100: true,
     solved: "",
     adminNote: "",
     max: null,
