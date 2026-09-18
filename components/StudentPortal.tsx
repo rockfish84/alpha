@@ -64,6 +64,7 @@ import {
   TestScoresTab,
   QuestionAnalysisTab,
   WrongNoteTab,
+  formatDay,
 } from "./StudentAnalysis";
 import { MyPage } from "./MyPage";
 import { bookmarkKey, type TestAnalysis } from "@/lib/analysis-types";
@@ -284,7 +285,7 @@ function StudentHistory({
           >
             <thead>
               <tr style={{ background: "#F6F8FB" }}>
-                {["날짜", "질문 문제", "해결 문제", "프린트", "쎈", "테스트"].map(
+                {["날짜", "질문 문제", "해결 문제", "프린트", "부교재", "테스트"].map(
                   (h, i) => (
                     <th
                       key={h}
@@ -895,6 +896,8 @@ export function StudentPortal({
   const [analysisErr, setAnalysisErr] = useState("");
   // 오답 노트 별표 (학생이 표시한 다시 볼 문항)
   const [bookmarks, setBookmarks] = useState<Set<string>>(new Set());
+  // 테스트 성적 탭에서 보고 있는 회차 (학기 옆에서 고른다)
+  const [scoreDate, setScoreDate] = useState("");
   const [subject, setSubject] = useState(
     () => openSubjects(term)[0] ?? subjects[0] ?? ""
   );
@@ -1033,6 +1036,20 @@ export function StudentPortal({
     [term]
   );
 
+  // 이 과목의 테스트 회차 (최신순으로 고르기 쉽게)
+  const scoreDates = useMemo(
+    () =>
+      analysis
+        .filter((t) => t.subject === subject)
+        .map((t) => t.date)
+        .sort((a, b) => b.localeCompare(a)),
+    [analysis, subject]
+  );
+  // 과목·학기를 바꾸면 가장 최근 회차를 보여 준다
+  useEffect(() => {
+    setScoreDate((cur) => (scoreDates.includes(cur) ? cur : scoreDates[0] ?? ""));
+  }, [scoreDates]);
+
   const mine = sessions;
   const current = mine.find((s) => s.date === date && s.subject === subject);
   const readOnly = !term?.active; // 지난 학기는 조회 전용
@@ -1120,7 +1137,7 @@ export function StudentPortal({
     showToast("1학기 학교 성적이 저장되었습니다");
   };
 
-  // 학기 선택 바
+  // 학기 선택 바 (테스트 성적 탭에서는 과목·회차도 여기서 고른다)
   const termBar = terms.length > 0 && (
     <div
       style={{
@@ -1147,6 +1164,53 @@ export function StudentPortal({
           </option>
         ))}
       </select>
+
+      {tab === "scores" && subjects.length > 1 && (
+        <>
+          <span style={{ fontSize: 13, fontWeight: 700, color: T.sub, marginLeft: 4 }}>
+            과목
+          </span>
+          <select
+            style={{ ...inputBase, width: "auto", minWidth: 150, padding: "8px 12px" }}
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+          >
+            {subjects.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+
+      {tab === "scores" && scoreDates.length > 0 && (
+        <>
+          <span style={{ fontSize: 13, fontWeight: 700, color: T.sub, marginLeft: 4 }}>
+            회차
+          </span>
+          <select
+            style={{
+              ...inputBase,
+              width: "auto",
+              minWidth: 150,
+              padding: "8px 12px",
+              fontWeight: 700,
+              color: T.primary,
+              borderColor: T.primary,
+            }}
+            value={scoreDate}
+            onChange={(e) => setScoreDate(e.target.value)}
+          >
+            {scoreDates.map((d, i) => (
+              <option key={d} value={d}>
+                {formatDay(d)} 테스트{i === 0 ? " (최근)" : ""}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+
       {readOnly && (
         <span
           style={{
@@ -1302,6 +1366,13 @@ export function StudentPortal({
                     subject={subject}
                     setSubject={setSubject}
                     subjects={subjects}
+                    date={scoreDate}
+                    setDate={setScoreDate}
+                    who={{
+                      name: me.studentName ?? me.name,
+                      school: me.school,
+                      grade: term?.grade,
+                    }}
                   />
                 )}
                 {tab === "questions" && (
@@ -1324,6 +1395,7 @@ export function StudentPortal({
                     subjects={subjects}
                     termId={term?.id ?? ""}
                     typeOrder={typeOrder[subject] ?? []}
+                    studentName={me.studentName ?? me.name}
                     bookmarks={bookmarks}
                     canBookmark={!viewerOnly}
                     onToggleBookmark={toggleBookmark}

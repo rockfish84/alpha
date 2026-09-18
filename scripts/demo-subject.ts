@@ -34,7 +34,7 @@ import { FILE_BUCKET } from "../lib/files";
 const TERM_NAME = "2026 2학기";
 const SUBJECT = "대수";
 const USER_PREFIX = "demo";
-const STUDENT_COUNT = 15;
+const STUDENT_COUNT = 15; // 기본 예시 학생 수 (+ 문자 테스트 계정 5명)
 const APPLY = process.argv.includes("--apply");
 const REMOVE = process.argv.includes("--remove");
 
@@ -57,6 +57,20 @@ const NAMES = [
   "강민서", "고은채", "김도윤", "김서아", "나예준",
   "문지호", "박하린", "배시우", "서윤아", "송재인",
   "신하음", "오태민", "윤소율", "이건우", "임채원",
+];
+
+const SCHOOLS = [
+  "둔산여고", "대전과학고", "충남고", "대덕고", "한밭고",
+  "서대전고", "보문고", "대신고", "유성고", "노은고",
+];
+
+/** 실제 번호로 문자 테스트까지 해볼 계정 (비밀번호 = 그 번호) */
+const TEST_ACCOUNTS = [
+  { name: "김정훈", phone: "01093856618", school: "둔산여고", grade: "고2" },
+  { name: "정은후", phone: "01043329180", school: "대전과학고", grade: "고2" },
+  { name: "홍은기", phone: "01075933540", school: "충남고", grade: "고1" },
+  { name: "오현민", phone: "01075450815", school: "대덕고", grade: "고2" },
+  { name: "김경환", phone: "01032036189", school: "한밭고", grade: "고1" },
 ];
 
 /** 회차별 답안 키. 8번은 부분문제 2개로 나눠 △ 채점도 확인할 수 있게 한다. */
@@ -167,17 +181,40 @@ async function main() {
 
   // 2) 학생 15명
   const students = [];
-  for (let i = 0; i < STUDENT_COUNT; i++) {
+  const roster = [
+    ...NAMES.map((name, i) => ({
+      name,
+      school: SCHOOLS[i % SCHOOLS.length],
+      grade: i % 3 === 0 ? "고1" : "고2",
+      secret: "1234",
+    })),
+    ...TEST_ACCOUNTS.map((t) => ({
+      name: t.name,
+      school: t.school,
+      grade: t.grade,
+      secret: t.phone, // 비밀번호 = 부모 번호 (주간 문자 발송 대상)
+    })),
+  ];
+
+  for (let i = 0; i < roster.length; i++) {
+    const person = roster[i];
     const username = `${USER_PREFIX}${String(i + 1).padStart(2, "0")}`;
-    const grade = i % 3 === 0 ? "고1" : "고2";
+    const grade = person.grade;
     let stu = await Student.findOne({ username });
     if (!stu) {
       stu = await Student.create({
-        name: NAMES[i],
+        name: person.name,
         username,
-        password: await bcrypt.hash("1234", 10),
-        passwordPlain: "1234",
+        school: person.school,
+        password: await bcrypt.hash(person.secret, 10),
+        passwordPlain: person.secret,
       });
+    } else {
+      stu.name = person.name;
+      stu.school = person.school;
+      stu.passwordPlain = person.secret;
+      stu.password = await bcrypt.hash(person.secret, 10);
+      await stu.save();
     }
     await Enrollment.findOneAndUpdate(
       { term: term._id, student: stu._id },
@@ -284,6 +321,10 @@ async function main() {
 
   console.log("\n완료. 관리자 화면에서 반 '대수' 를 확인하세요.");
   console.log("학생 로그인 예: demo01 / 1234 (학부모 탭도 같은 계정)");
+  console.log("문자 테스트 계정:");
+  TEST_ACCOUNTS.forEach((t, i) =>
+    console.log(`  ${USER_PREFIX}${String(STUDENT_COUNT + i + 1).padStart(2, "0")} / ${t.phone} · ${t.name} (${t.school} ${t.grade})`)
+  );
   await mongoose.disconnect();
 }
 

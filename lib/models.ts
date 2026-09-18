@@ -35,6 +35,7 @@ const StudentSchema = new Schema(
     username: { type: String, required: true, unique: true },
     password: { type: String, required: true }, // bcrypt hash
     passwordPlain: { type: String, default: "" }, // 관리자 조회용 평문
+    school: { type: String, default: "" }, // 재학 중인 학교 (예: 둔산여고)
     // legacy(학기 이전) 필드 — 마이그레이션 후 사용 안 함
     grade: { type: String, default: "" },
     status: { type: String, default: "재원" },
@@ -101,7 +102,7 @@ const SessionSchema = new Schema(
 
     // 관리자 입력
     hwDone: { type: Number, default: null }, // 과제(프린트) 1(O)/0.5(△)/0(X)/null
-    hwSsen: { type: Number, default: null }, // 과제(쎈) 1(O)/0.5(△)/0(X)/null
+    hwSsen: { type: Number, default: null }, // 과제(부교재) 1(O)/0.5(△)/0(X)/null
     testScore: { type: Number, default: null },
     testMaxOverride: { type: Number, default: null },
     testDetail: { type: String, default: "" },

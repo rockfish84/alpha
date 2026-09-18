@@ -67,6 +67,7 @@ export async function GET() {
       username: parent.username,
       studentId: String(child._id),
       studentName: child.name,
+      school: (child.school ?? "") as string,
       terms: await termsForStudent(String(child._id)),
     });
   }
@@ -84,6 +85,7 @@ export async function GET() {
     username: student.username,
     studentId: String(student._id),
     studentName: student.name,
+    school: (student.school ?? "") as string,
     terms: await termsForStudent(String(student._id)),
   });
 }

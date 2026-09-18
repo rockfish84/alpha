@@ -16,6 +16,7 @@ import {
   Send,
   FileText,
   PenLine,
+  Image as ImageIcon,
 } from "lucide-react";
 import {
   T,
@@ -50,6 +51,13 @@ import {
 } from "./ui";
 import { Shell, type NavItem } from "./Shell";
 import { AdminScores } from "./AdminScores";
+import {
+  drawRoundCard,
+  drawTestDetailCard,
+  drawTrendCard,
+  type CardData,
+  type CardRound,
+} from "@/lib/score-card";
 
 /* ============================== VIEW STATE 저장 ==============================
    선택한 탭·날짜·과목을 브라우저에 저장 → 새로고침해도 보던 화면 유지. */
@@ -286,18 +294,45 @@ type SendSummary = {
 };
 
 // N명씩 나눠서 순차 발송 (버스트 완화). 한 묶음이 실패해도 나머지는 계속.
+/**
+ * 같은 번호가 한 요청에 두 번 들어가면 솔라피가 "중복 수신번호"로 막는다.
+ * (이미지 여러 장 · 형제자매가 같은 번호를 쓰는 경우)
+ * 그래서 한 묶음 안에서는 번호가 겹치지 않게 나눠 보낸다.
+ */
+function splitByUniqueTo(
+  msgs: { to: string; text: string; image?: string }[],
+  size: number
+): { to: string; text: string; image?: string }[][] {
+  const rest = [...msgs];
+  const batches: typeof rest[] = [];
+  while (rest.length) {
+    const batch: typeof rest = [];
+    const used = new Set<string>();
+    for (let i = 0; i < rest.length && batch.length < Math.max(1, size); ) {
+      const to = digits(rest[i].to);
+      if (used.has(to)) {
+        i += 1;
+        continue;
+      }
+      used.add(to);
+      batch.push(rest.splice(i, 1)[0]);
+    }
+    batches.push(batch);
+  }
+  return batches;
+}
+
 async function sendBatched(
-  msgs: { to: string; text: string }[],
+  msgs: { to: string; text: string; image?: string }[],
   batchSize: number,
   onProgress?: (done: number, total: number) => void
 ): Promise<SendSummary> {
-  const size = Math.max(1, batchSize);
   let sent = 0;
   let failed = 0;
   const failedList: { to: string; reason: string }[] = [];
   let redirectedTo: string | undefined;
-  for (let i = 0; i < msgs.length; i += size) {
-    const chunk = msgs.slice(i, i + size);
+  let done = 0;
+  for (const chunk of splitByUniqueTo(msgs, batchSize)) {
     try {
       const res = await api.post("/api/admin/notify", { messages: chunk });
       sent += res.sent ?? 0;
@@ -310,7 +345,8 @@ async function sendBatched(
         failedList.push({ to: m.to, reason: e?.message || "요청 실패" })
       );
     }
-    onProgress?.(Math.min(i + size, msgs.length), msgs.length);
+    done += chunk.length;
+    onProgress?.(done, msgs.length);
   }
   return { sent, failed, failedList, redirectedTo };
 }
@@ -369,7 +405,7 @@ function buildSmsText(
   max: number
 ) {
   const test = r?.testScore != null ? `${r.testScore}/${r?.testMaxOverride ?? max}` : "미응시";
-  return `[더브코 알파 클리닉]\n${name} 학생 · ${md(dateIso)}\n· 과제(프린트): ${hwLabel(r?.hwDone)}\n· 과제(쎈): ${hwLabel(r?.hwSsen)}\n· 테스트: ${test}`;
+  return `[더브코 알파 클리닉]\n${name} 학생 · ${md(dateIso)}\n· 과제(프린트): ${hwLabel(r?.hwDone)}\n· 과제(부교재): ${hwLabel(r?.hwSsen)}\n· 테스트: ${test}`;
 }
 
 function NotifyModal({
@@ -1005,7 +1041,7 @@ function AdminBoard({
           >
             <thead>
               <tr style={{ background: "#F6F8FB" }}>
-                {["학생", "출석", "질문 문제", "프린트", "쎈", "테스트", "해결 문제", "비고", ""].map(
+                {["학생", "출석", "질문 문제", "프린트", "부교재", "테스트", "해결 문제", "비고", ""].map(
                   (h, i) => (
                     <th
                       key={i}
@@ -1161,7 +1197,7 @@ const QuickCard = React.memo(function QuickCard({
         </div>
 
         <div>
-          <div style={{ ...lbl, marginBottom: 5 }}>과제(쎈)</div>
+          <div style={{ ...lbl, marginBottom: 5 }}>과제(부교재)</div>
           <HwToggles value={r?.hwSsen} onSet={(v) => patch({ hwSsen: v })} />
         </div>
 
@@ -1460,14 +1496,28 @@ function StudentForm({
           </Field>
         </div>
       </div>
-      <Field label="학년">
-        <input
-          style={inputBase}
-          value={f.grade ?? ""}
-          onChange={(e) => set("grade", e.target.value)}
-          placeholder="예: 고2"
-        />
-      </Field>
+      <div style={{ display: "flex", gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <Field label="학교">
+            <input
+              style={inputBase}
+              value={f.school ?? ""}
+              onChange={(e) => set("school", e.target.value)}
+              placeholder="예: 둔산여고"
+            />
+          </Field>
+        </div>
+        <div style={{ flex: 1 }}>
+          <Field label="학년">
+            <input
+              style={inputBase}
+              value={f.grade ?? ""}
+              onChange={(e) => set("grade", e.target.value)}
+              placeholder="예: 고2"
+            />
+          </Field>
+        </div>
+      </div>
       <Field label="과목 (여러 개 선택 가능)">
         {subjects.length === 0 ? (
           <span style={{ color: T.muted, fontSize: 13 }}>
@@ -1659,6 +1709,7 @@ function AdminStudents({
                   "아이디",
                   "비밀번호",
                   "학부모 비번",
+                  "학교",
                   "학년",
                   "과목",
                   "상태",
@@ -1732,6 +1783,9 @@ function AdminStudents({
                     {s.parentChanged && (
                       <span style={{ fontSize: 11, marginLeft: 4 }}>(변경)</span>
                     )}
+                  </td>
+                  <td style={{ padding: "11px 14px", color: T.sub, whiteSpace: "nowrap" }}>
+                    {s.school || "—"}
                   </td>
                   <td style={{ padding: "11px 14px", color: T.sub }}>
                     {s.grade}
@@ -2241,6 +2295,187 @@ function buildStudentBlocks(
   return blocks;
 }
 
+/** 그 회차(날짜·반)의 반 전체 점수 (100점 환산) */
+function roundScores(
+  sessions: ClinicSession[],
+  dateIso: string,
+  subject: string
+): number[] {
+  return sessions
+    .filter((s) => s.date === dateIso && s.subject === subject && s.testScore != null)
+    .map((s) => Math.round((Number(s.testScore) / (s.max ?? 100)) * 100));
+}
+
+/** 문자에 붙일 성적 카드 데이터 (반 평균·최고·등수·추이 포함) */
+function buildCardData(
+  student: Student,
+  blocks: WeekBlock[],
+  sessions: ClinicSession[]
+): CardData {
+  const rounds: CardRound[] = blocks.map((b) => {
+    const all = roundScores(sessions, b.dateIso, b.subject);
+    const mine = b.hasTest ? b.testPct : null;
+    const rank = mine == null ? null : all.filter((v) => v > mine).length + 1;
+    return {
+      date: b.dateIso,
+      subject: b.subject,
+      score: mine,
+      average: all.length
+        ? Math.round(all.reduce((a, v) => a + v, 0) / all.length)
+        : null,
+      best: all.length ? Math.max(...all) : null,
+      rank,
+      participants: all.length || null,
+      hwDone: b.hwDone,
+      hwSsen: b.hwSsen,
+    };
+  });
+
+  // 추이: 마지막 회차의 반 기준 최근 6회
+  const subject = blocks[blocks.length - 1]?.subject ?? student.subjects[0] ?? "";
+  const trend = sessions
+    .filter(
+      (s) => s.studentId === student.id && s.subject === subject && s.testScore != null
+    )
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-6)
+    .map((s) => {
+      const all = roundScores(sessions, s.date, subject);
+      return {
+        date: s.date,
+        score: Math.round((Number(s.testScore) / (s.max ?? 100)) * 100),
+        average: all.length
+          ? Math.round(all.reduce((a, v) => a + v, 0) / all.length)
+          : null,
+      };
+    });
+
+  return {
+    studentName: student.name,
+    school: student.school,
+    grade: student.grade,
+    rounds,
+    trend,
+  };
+}
+
+/** 모든 문자에 공통으로 들어가는 인사말 */
+function greetingText(subject: string): string {
+  return (
+    `안녕하세요 더브코 알파 오현민T 조교입니다.\n` +
+    `이번 주 ${subject} 퀴즈 점수 및 과제 진행률 안내 드립니다 :)`
+  );
+}
+
+/** 회차별 분석 데이터 (문자 이미지용) — /api/admin/round-cards 응답 */
+type RoundCardRow = {
+  studentId: string;
+  name: string;
+  school: string;
+  grade: string;
+  test: any;
+};
+
+/**
+ * 사진 문자의 "첫 통"에만 들어가는 안내 문구.
+ * (솔라피 MMS 는 한 통에 사진 1장 + 빈 문구 불가 → 나머지 사진에는 한 줄 설명만 붙인다)
+ */
+function imageLeadText(blocks: WeekBlock[]): string {
+  const subs = [...new Set(blocks.map((b) => b.subject))].join(", ");
+  const additional = blocks
+    .map((b) => b.additionalMessage.trim())
+    .filter(Boolean)
+    .join("\n");
+  return [greetingText(subs), additional].filter(Boolean).join("\n\n");
+}
+
+/** 한 학생에게 보낼 문자 묶음 (회차 상세 카드 여러 장 + 반별 추이 카드) */
+function buildImageMessages(
+  student: Student,
+  blocks: WeekBlock[],
+  sessions: ClinicSession[],
+  to: string,
+  analysis: Record<string, RoundCardRow[]> = {}
+): { to: string; text: string; image: string }[] {
+  const card = buildCardData(student, blocks, sessions);
+  const who = {
+    studentName: card.studentName,
+    school: card.school,
+    grade: card.grade,
+  };
+  const out: { to: string; text: string; image: string }[] = [];
+  const lead = imageLeadText(blocks);
+  // 첫 통에만 인사말을 넣고(그 아래 사진 설명 한 줄),
+  // 나머지 사진에는 무슨 사진인지 한 줄만 붙인다.
+  const push = (image: string, caption: string) =>
+    out.push({
+      to,
+      text: out.length === 0 ? `${lead}\n\n${caption}` : caption,
+      image,
+    });
+
+  // 1) 회차(날짜×반)마다 그날 테스트 결과 — 학생 화면의 상세와 같은 내용
+  card.rounds.forEach((r, i) => {
+    const key = `${blocks[i].dateIso}|${blocks[i].subject}`;
+    const row = (analysis[key] ?? []).find((x) => x.studentId === student.id);
+    const caption = `${md(blocks[i].dateIso)} ${r.subject} 테스트 성적표`;
+    if (row?.test) {
+      const t = row.test;
+      push(
+        drawTestDetailCard({
+          ...who,
+          subject: t.subject,
+          date: t.date,
+          hwDone: t.myHwDone ?? r.hwDone,
+          hwSsen: t.myHwSsen ?? r.hwSsen,
+          maxScore: t.maxScore,
+          participants: t.participants,
+          myScore: t.myScore,
+          myPct: t.myPct,
+          myRank: t.myRank,
+          avg: t.avg,
+          best: t.best,
+          distribution: t.distribution ?? [],
+          questions: (t.questions ?? []).map((q: any) => ({
+            label: q.label,
+            type: q.type,
+            points: q.points,
+            answer: q.answer,
+            myAnswer: q.myAnswer,
+            myAnswered: q.myAnswered,
+            myCorrect: q.myCorrect,
+            correctRate: q.correctRate,
+            wrongRank: q.wrongRank,
+            choiceShares: q.choiceShares ?? [],
+          })),
+        }),
+        caption
+      );
+    } else {
+      // 분석 자료가 없으면 간단 카드로 대체
+      push(
+        drawRoundCard({
+          ...who,
+          round: r,
+          classScores: roundScores(sessions, blocks[i].dateIso, blocks[i].subject),
+        }),
+        caption
+      );
+    }
+  });
+
+  // 2) 반마다 점수 추이 한 장 (주간 요약 문구를 함께 보냄)
+  const subjects = [...new Set(blocks.map((b) => b.subject))];
+  subjects.forEach((subject) => {
+    const trend = buildCardData(student, blocks.filter((b) => b.subject === subject), sessions)
+      .trend;
+    if (!trend.length) return;
+    push(drawTrendCard({ ...who, subject, trend }), `${subject} 점수 추이`);
+  });
+
+  return out;
+}
+
 function buildWeeklyText(blocks: WeekBlock[]): string {
   const subs = [...new Set(blocks.map((b) => b.subject))].join(", ");
   const header =
@@ -2255,7 +2490,7 @@ function buildWeeklyText(blocks: WeekBlock[]): string {
       const lines = [`${md(b.dateIso)} ${b.subject}`];
       if (b.hasTest) lines.push(`퀴즈 점수 : ${b.testPct}점`);
       if (b.hwDone != null) lines.push(`과제 (프린트) 진행률 : ${hwPct(b.hwDone)}%`);
-      if (b.hwSsen != null) lines.push(`과제 (교재) 진행률 : ${hwPct(b.hwSsen)}%`);
+      if (b.hwSsen != null) lines.push(`과제 (부교재) 진행률 : ${hwPct(b.hwSsen)}%`);
       return lines.join("\n");
     })
     .join("\n\n");
@@ -2267,11 +2502,13 @@ function AdminWeekly({
   sessions,
   clinicDates,
   additionalMessages,
+  termId,
 }: {
   students: Student[];
   sessions: ClinicSession[];
   clinicDates: string[];
   additionalMessages: Record<string, string>;
+  termId: string;
 }) {
   const [dates, setDates] = useState<Set<string>>(new Set());
   const [testMode, setTestMode] = useState(true);
@@ -2282,6 +2519,9 @@ function AdminWeekly({
   const [note, setNote] = useState(""); // 검증 메시지·진행 상황
   const [summary, setSummary] = useState<SendSummary | null>(null);
   const [lockTo, setLockTo] = useState<string | null>(null);
+  // 성적 카드 이미지 첨부 (MMS)
+  const [withImage, setWithImage] = useState(false);
+  const [preview, setPreview] = useState<string[] | null>(null);
 
   useEffect(() => {
     api
@@ -2302,6 +2542,7 @@ function AdminWeekly({
         valid: phoneOk(s.password ?? ""),
         blocks,
         text: blocks.length ? buildWeeklyText(blocks) : "",
+        student: s,
       };
     })
     .filter((it) => it.blocks.length > 0)
@@ -2321,6 +2562,32 @@ function AdminWeekly({
     ? {}
     : Object.fromEntries(included.map((it) => [digits(it.num), it.name]));
 
+  /** 선택한 회차들의 분석 데이터를 한 번씩 받아 둔다 (문자 이미지용) */
+  const loadAnalysis = async (): Promise<Record<string, RoundCardRow[]>> => {
+    const keys = new Set<string>();
+    for (const it of included) {
+      for (const b of it.blocks) keys.add(`${b.dateIso}|${b.subject}`);
+    }
+    const out: Record<string, RoundCardRow[]> = {};
+    let done = 0;
+    for (const key of keys) {
+      const [date, subject] = key.split("|");
+      setNote(`성적 자료를 모으는 중… ${++done}/${keys.size}`);
+      try {
+        const d = await api.get(
+          `/api/admin/round-cards?term=${termId}&subject=${encodeURIComponent(
+            subject
+          )}&date=${date}`
+        );
+        out[key] = d.students ?? [];
+      } catch {
+        out[key] = [];
+      }
+    }
+    setNote("");
+    return out;
+  };
+
   const send = async () => {
     setNote("");
     setSummary(null);
@@ -2328,24 +2595,40 @@ function AdminWeekly({
       setNote("테스트로 받을 번호를 올바르게 입력하세요.");
       return;
     }
-    const msgs = included.map((it) => ({
-      to: testMode ? testNumber : it.num,
-      text: it.text,
-    }));
+    const analysis = withImage ? await loadAnalysis() : {};
+    const msgs = withImage
+      ? included.flatMap((it) =>
+          buildImageMessages(
+            it.student,
+            it.blocks,
+            sessions,
+            testMode ? testNumber : it.num,
+            analysis
+          )
+        )
+      : included.map((it) => ({
+          to: testMode ? testNumber : it.num,
+          text: it.text,
+        }));
     if (msgs.length === 0) {
       setNote("보낼 대상이 없습니다.");
       return;
     }
+    // 이미지가 붙으면 요청 용량이 커져 한 번에 적게 보낸다.
+    const size = withImage ? Math.min(batchSize, 5) : batchSize;
     if (
       !confirm(
-        `${msgs.length}명에게 ${testMode ? "(테스트) 내 번호로 " : ""}${batchSize}명씩 나눠 보낼까요?`
+        withImage
+          ? `학생 ${included.length}명에게 사진 문자 ${msgs.length}건을 보낼까요?\n` +
+              `(회차별 성적 + 반별 점수 추이 · 건당 약 60원 · 예상 ${msgs.length * 60}원)`
+          : `${msgs.length}명에게 ${testMode ? "(테스트) 내 번호로 " : ""}${size}명씩 나눠 보낼까요?`
       )
     )
       return;
     setSending(true);
     setNote(`발송 중… 0/${msgs.length}`);
     try {
-      const res = await sendBatched(msgs, batchSize, (done, total) =>
+      const res = await sendBatched(msgs, size, (done, total) =>
         setNote(`발송 중… ${done}/${total}`)
       );
       setSummary(res);
@@ -2443,6 +2726,98 @@ function AdminWeekly({
             onChange={(e) => setTestNumber(e.target.value)}
           />
         )}
+
+        {/* 성적 카드 이미지 첨부 (사진 문자) */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+            padding: "10px 12px",
+            background: withImage ? T.primarySoft : "#F6F8FB",
+            borderRadius: 10,
+            marginBottom: 10,
+          }}
+        >
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 14,
+              fontWeight: 700,
+              color: T.ink,
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={withImage}
+              onChange={(e) => setWithImage(e.target.checked)}
+            />
+            <ImageIcon size={16} />
+            성적 카드 이미지 첨부
+          </label>
+          <span style={{ fontSize: 12.5, color: T.sub }}>
+            고른 날짜마다 <b>그날 테스트 결과</b>(점수·반 평균·등수·분포·과제)를 한 장씩,
+            그리고 반마다 <b>점수 추이</b>를 한 장 더 보냅니다. 사진 문자(MMS)로 나가며
+            <b> 건당 약 60원</b>입니다.
+          </span>
+          <div style={{ flex: 1 }} />
+          <Btn
+            variant="outline"
+            size="sm"
+            disabled={included.length === 0}
+            onClick={async () => {
+              const first = included[0];
+              if (!first) return;
+              try {
+                const analysis = await loadAnalysis();
+                setPreview(
+                  buildImageMessages(
+                    first.student,
+                    first.blocks,
+                    sessions,
+                    "01000000000",
+                    analysis
+                  ).map((m) => m.image)
+                );
+              } catch (e: any) {
+                setNote(e?.message || "미리보기를 만들지 못했습니다.");
+              }
+            }}
+          >
+            <Eye size={14} />
+            미리보기
+          </Btn>
+        </div>
+
+        <Modal
+          open={!!preview?.length}
+          onClose={() => setPreview(null)}
+          title={`성적 카드 미리보기 (첫 번째 학생 · ${preview?.length ?? 0}장)`}
+          width={720}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {(preview ?? []).map((src, i) => (
+              <div key={i}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={src}
+                  alt={`성적 카드 ${i + 1}`}
+                  style={{ width: "100%", borderRadius: 12, border: `1px solid ${T.line}` }}
+                />
+                <div style={{ fontSize: 12.5, color: T.muted, marginTop: 6 }}>
+                  {i + 1}번째 · 약{" "}
+                  {Math.round(((src.length - src.indexOf(",") - 1) * 3) / 4 / 1024)}KB
+                  (제한 200KB)
+                </div>
+              </div>
+            ))}
+          </div>
+        </Modal>
+
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 13, color: T.sub, fontWeight: 600 }}>
             한 번에 보낼 인원 (나눠 보내기)
@@ -3490,6 +3865,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
               {tab === "weekly" && (
                 <AdminWeekly
                   key={termId}
+                  termId={termId}
                   students={students}
                   sessions={sessions}
                   clinicDates={clinicDates}

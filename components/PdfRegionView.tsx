@@ -25,6 +25,43 @@ function getDoc(fileId: string) {
 
 const MAX_SCALE = 2.5;
 
+/**
+ * 문항 영역을 잘라 이미지로 만든다. (오답 PDF 만들기에서 사용)
+ * targetWidth 는 결과 이미지의 가로 픽셀 수 기준.
+ */
+export async function renderRegionImages(
+  fileId: string,
+  rects: RegionRect[],
+  targetWidth = 720
+): Promise<{ dataUrl: string; width: number; height: number }[]> {
+  const doc = await getDoc(fileId);
+  const out: { dataUrl: string; width: number; height: number }[] = [];
+  for (const rect of rects) {
+    if (rect.w <= 0 || rect.h <= 0) continue;
+    const page = await doc.getPage(rect.page);
+    const scale = Math.min(4, Math.max(1, targetWidth / rect.w));
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(rect.w * scale);
+    canvas.height = Math.ceil(rect.h * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) continue;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({
+      canvasContext: ctx,
+      viewport,
+      transform: [1, 0, 0, 1, -rect.x * scale, -rect.y * scale],
+    }).promise;
+    out.push({
+      dataUrl: canvas.toDataURL("image/jpeg", 0.82),
+      width: canvas.width,
+      height: canvas.height,
+    });
+  }
+  return out;
+}
+
 /** 문항 영역(여러 조각일 수 있음)을 잘라서 그린다. */
 export function PdfRegionView({
   fileId,

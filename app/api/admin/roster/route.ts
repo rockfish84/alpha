@@ -48,7 +48,7 @@ export async function POST(req: Request) {
   if (!g.ok) return g.res;
 
   const body = await req.json().catch(() => ({}));
-  const { name, username, password, grade, subjects, status } = body;
+  const { name, username, password, grade, subjects, status, school } = body;
   if (!body.term || !name || !username) {
     return NextResponse.json(
       { error: "학기·이름·아이디는 필수입니다." },
@@ -71,13 +71,15 @@ export async function POST(req: Request) {
     student = await Student.create({
       name,
       username,
+      school: typeof school === "string" ? school : "",
       password: await bcrypt.hash(password, 10),
       passwordPlain: password,
     });
     await ensureParent(student as any);
   } else {
-    // 기존 계정: 이름/비번 갱신 (선택)
+    // 기존 계정: 이름/학교/비번 갱신 (선택)
     if (name) student.name = name;
+    if (typeof school === "string") student.school = school;
     if (password && String(password).trim() !== "") {
       student.password = await bcrypt.hash(password, 10);
       student.passwordPlain = password;

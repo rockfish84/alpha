@@ -23,11 +23,57 @@ export function isValidPhone(v: string): boolean {
   return /^01[016789][0-9]{7,8}$/.test(d);
 }
 
-/** 90바이트(한글 45자) 이하면 SMS, 넘으면 LMS. */
-function smsType(text: string): "SMS" | "LMS" {
+/** 90바이트(한글 45자) 이하면 SMS, 넘으면 LMS. 이미지가 있으면 MMS. */
+function smsType(text: string, hasImage: boolean): "SMS" | "LMS" | "MMS" {
+  if (hasImage) return "MMS";
   let bytes = 0;
   for (const ch of text) bytes += ch.charCodeAt(0) > 0x7f ? 2 : 1;
   return bytes <= 90 ? "SMS" : "LMS";
+}
+
+/** 솔라피 MMS 이미지 규격: 200KB 이하 JPG (가로 1500 / 세로 1440 이하) */
+export const MMS_MAX_BYTES = 200 * 1024;
+export const MMS_MAX_WIDTH = 1500;
+export const MMS_MAX_HEIGHT = 1440;
+
+/** data URL 또는 순수 base64에서 base64 본문만 뽑는다. */
+export function stripDataUrl(value: string): string {
+  const i = value.indexOf("base64,");
+  return i >= 0 ? value.slice(i + 7) : value;
+}
+
+export function base64Bytes(base64: string): number {
+  const b = stripDataUrl(base64);
+  const padding = b.endsWith("==") ? 2 : b.endsWith("=") ? 1 : 0;
+  return Math.floor((b.length * 3) / 4) - padding;
+}
+
+/**
+ * MMS용 이미지를 솔라피 저장소에 올리고 fileId 를 받는다.
+ * 같은 이미지를 여러 명에게 보낼 때는 한 번만 올리면 된다.
+ */
+export async function uploadImage(base64: string, name = "score.jpg"): Promise<string> {
+  const headers = authHeaders();
+  if (!headers) throw new Error("문자 발송 설정(SOLAPI_*)이 없습니다.");
+  const file = stripDataUrl(base64);
+  if (base64Bytes(file) > MMS_MAX_BYTES) {
+    throw new Error(
+      `이미지가 너무 큽니다. ${Math.floor(MMS_MAX_BYTES / 1024)}KB 이하 JPG 만 보낼 수 있습니다.`
+    );
+  }
+
+  const res = await fetch(`${API}/storage/v1/files`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ file, name, type: "MMS" }),
+  });
+  const data: any = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.fileId) {
+    throw new Error(
+      data?.errorMessage || data?.message || `이미지 업로드 실패 (${res.status})`
+    );
+  }
+  return data.fileId as string;
 }
 
 function authHeaders(): Record<string, string> | null {
@@ -61,9 +107,9 @@ function testOverride(): string | null {
   return t && isValidPhone(t) ? onlyDigits(t) : null;
 }
 
-/** 여러 건을 한 번에 발송. 각 메시지 {to, text}. */
+/** 여러 건을 한 번에 발송. 각 메시지 {to, text, imageId?}. 이미지가 있으면 MMS. */
 export async function sendMany(
-  messages: { to: string; text: string }[]
+  messages: { to: string; text: string; imageId?: string }[]
 ): Promise<SmsResult> {
   const headers = authHeaders();
   const from = process.env.SOLAPI_SENDER;
@@ -74,13 +120,14 @@ export async function sendMany(
   const override = testOverride();
   const payload = {
     messages: messages.map((m) => {
-      const type = smsType(m.text);
+      const type = smsType(m.text, !!m.imageId);
       return {
         to: override ?? onlyDigits(m.to),
         from: onlyDigits(from),
         text: m.text,
         type,
-        ...(type === "LMS" ? { subject: "더브코 알파 클리닉" } : {}),
+        ...(type === "SMS" ? {} : { subject: "더브코 알파 클리닉" }),
+        ...(m.imageId ? { imageId: m.imageId } : {}),
       };
     }),
   };

@@ -40,6 +40,10 @@ export async function PATCH(
     student.name = body.name;
     stuChanged = true;
   }
+  if (typeof body.school === "string") {
+    student.school = body.school;
+    stuChanged = true;
+  }
   if (typeof body.password === "string" && body.password.trim() !== "") {
     student.password = await bcrypt.hash(body.password, 10);
     student.passwordPlain = body.password;

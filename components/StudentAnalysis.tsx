@@ -10,6 +10,8 @@ import {
   Filter,
   ChevronDown,
   HelpCircle,
+  FileDown,
+  CheckSquare,
 } from "lucide-react";
 import { T, md } from "@/lib/constants";
 import { ANSWER_ALT_SEPARATOR, SCORE_BUCKETS } from "@/lib/grading";
@@ -424,6 +426,56 @@ function FileLinks({ test }: { test: TestAnalysis }) {
   );
 }
 
+/** 과제 수행 (O/△/X) — 점수 카드 아래에 붙는다 */
+function HomeworkRow({
+  hwDone,
+  hwSsen,
+}: {
+  hwDone: number | null;
+  hwSsen: number | null;
+}) {
+  const items: [string, number][] = [];
+  if (hwDone != null) items.push(["과제(프린트)", hwDone]);
+  if (hwSsen != null) items.push(["과제(부교재)", hwSsen]);
+  if (!items.length) return null;
+
+  const mark = (v: number) => (v === 1 ? "O" : v === 0.5 ? "△" : "X");
+  const tone = (v: number) => (v === 1 ? T.ok : v === 0.5 ? T.warn : T.bad);
+  const soft = (v: number) => (v === 1 ? T.okSoft : v === 0.5 ? T.warnSoft : T.badSoft);
+
+  return (
+    <Card style={{ padding: "12px 16px", marginTop: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12.5, fontWeight: 800, color: T.sub }}>과제 진행</span>
+        {items.map(([label, v]) => (
+          <span
+            key={label}
+            style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
+          >
+            <span style={{ fontSize: 13.5, color: T.sub }}>{label}</span>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                minWidth: 26,
+                height: 26,
+                borderRadius: 8,
+                background: soft(v),
+                color: tone(v),
+                fontWeight: 900,
+                fontSize: 14,
+              }}
+            >
+              {mark(v)}
+            </span>
+          </span>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 /* ============================== 회차 상세 ============================== */
 function TestDetail({ test }: { test: TestAnalysis }) {
   const rows = useMemo(
@@ -472,16 +524,19 @@ function TestDetail({ test }: { test: TestAnalysis }) {
         <div style={{ flex: 1, minWidth: 280 }}>
           <Distribution test={test} />
         </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", minWidth: 260, flex: 1 }}>
-          <Stat
-            label="내 점수"
-            value={test.myPct ?? "—"}
-            unit={test.myPct == null ? "" : "점"}
-            tone={scoreTone(test.myPct)}
-            hint={test.myPct == null ? "미응시" : `원점수 ${test.myScore}/${test.maxScore}`}
-          />
-          <Stat label="전체 평균" value={test.avg ?? "—"} unit="점" tone={T.sub} />
-          <Stat label="최고점" value={test.best ?? "—"} unit="점" tone={T.ok} />
+        <div style={{ minWidth: 260, flex: 1 }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Stat
+              label="내 점수"
+              value={test.myPct ?? "—"}
+              unit={test.myPct == null ? "" : "점"}
+              tone={scoreTone(test.myPct)}
+              hint={test.myPct == null ? "미응시" : `원점수 ${test.myScore}/${test.maxScore}`}
+            />
+            <Stat label="전체 평균" value={test.avg ?? "—"} unit="점" tone={T.sub} />
+            <Stat label="최고점" value={test.best ?? "—"} unit="점" tone={T.ok} />
+          </div>
+          <HomeworkRow hwDone={test.myHwDone} hwSsen={test.myHwSsen} />
         </div>
       </div>
 
@@ -503,7 +558,7 @@ function TestDetail({ test }: { test: TestAnalysis }) {
             <thead>
               <tr>
                 {[
-                  "오답률 순위",
+                  "정답률 낮은 순",
                   "문번",
                   "유형",
                   "배점",
@@ -606,22 +661,25 @@ export function TestScoresTab({
   subject,
   setSubject,
   subjects,
+  date,
+  setDate,
+  who,
 }: {
   tests: TestAnalysis[];
   subject: string;
   setSubject: (s: string) => void;
   subjects: string[];
+  date: string;
+  setDate: (d: string) => void;
+  /** 화면 상단에 보여줄 "이름 · 학교 · 학년" */
+  who?: { name: string; school?: string; grade?: string };
 }) {
   const rows = useMemo(
     () => tests.filter((t) => t.subject === subject),
     [tests, subject]
   );
-  const [openDate, setOpenDate] = useState("");
-  useEffect(() => {
-    setOpenDate(rows.length ? rows[rows.length - 1].date : "");
-  }, [subject, rows.length]);
 
-  const selected = rows.find((t) => t.date === openDate) ?? null;
+  const selected = rows.find((t) => t.date === date) ?? rows[rows.length - 1] ?? null;
   const myPcts = rows.filter((t) => t.myPct != null).map((t) => t.myPct as number);
   const avgMine = myPcts.length
     ? Math.round(myPcts.reduce((a, p) => a + p, 0) / myPcts.length)
@@ -633,9 +691,21 @@ export function TestScoresTab({
 
   return (
     <div>
-      <SectionTitle>테스트별 성적</SectionTitle>
-      <div style={{ marginBottom: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <SubjectSwitch subjects={subjects} value={subject} onChange={setSubject} />
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          gap: 10,
+          flexWrap: "wrap",
+          marginBottom: 16,
+        }}
+      >
+        <SectionTitle noMargin>테스트 성적</SectionTitle>
+        {who?.name && (
+          <span style={{ fontSize: 15, fontWeight: 700, color: T.sub }}>
+            {[who.name, who.school, who.grade].filter(Boolean).join(" · ")}
+          </span>
+        )}
       </div>
 
       {rows.length === 0 ? (
@@ -644,120 +714,150 @@ export function TestScoresTab({
         </Card>
       ) : (
         <>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-            <Stat label="응시 회차" value={myPcts.length} unit="회" />
-            <Stat
-              label="내 평균"
-              value={avgMine ?? "—"}
-              unit={avgMine == null ? "" : "점"}
-              tone={scoreTone(avgMine)}
-            />
-            <Stat label="반 평균" value={avgClass ?? "—"} unit="점" tone={T.sub} />
-            <Stat
-              label="최고 점수"
-              value={myPcts.length ? Math.max(...myPcts) : "—"}
-              unit={myPcts.length ? "점" : ""}
-              tone={T.ok}
-            />
-          </div>
-
-          <Card style={{ overflow: "hidden" }}>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
-                <thead>
-                  <tr>
-                    {[
-                      "실시일",
-                      "내 점수",
-                      "100점 환산",
-                      "클리닉 출결",
-                      "전체 평균",
-                      "최고점",
-                      "등수",
-                      "시험지 · 답지",
-                      "",
-                    ].map((h) => (
-                      <th key={h} style={th}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((t) => (
-                    <tr
-                      key={t.date}
-                      style={{
-                        background: t.date === openDate ? T.primarySoft : undefined,
-                      }}
-                    >
-                      <td style={{ ...td, fontWeight: 800 }}>{formatDay(t.date)}</td>
-                      <td style={{ ...td, textAlign: "center" }}>
-                        {t.myScore == null ? (
-                          <span style={{ color: T.muted }}>미응시</span>
-                        ) : (
-                          <>
-                            {t.myScore}
-                            <span style={{ color: T.muted }}> / {t.maxScore}</span>
-                          </>
-                        )}
-                      </td>
-                      <td
-                        style={{
-                          ...td,
-                          textAlign: "center",
-                          fontWeight: 800,
-                          color: scoreTone(t.myPct),
-                        }}
-                      >
-                        {t.myPct == null ? "—" : `${t.myPct}점`}
-                      </td>
-                      <td style={{ ...td, textAlign: "center" }}>
-                        {t.myAttendance ? (
-                          <Pill
-                            tone={
-                              t.myAttendance === "출석"
-                                ? "ok"
-                                : t.myAttendance === "지각"
-                                ? "warn"
-                                : "bad"
-                            }
-                          >
-                            {t.myAttendance}
-                          </Pill>
-                        ) : (
-                          <span style={{ color: T.muted }}>—</span>
-                        )}
-                      </td>
-                      <td style={{ ...td, textAlign: "center", color: T.sub }}>
-                        {t.avg}점
-                      </td>
-                      <td style={{ ...td, textAlign: "center", color: T.ok, fontWeight: 700 }}>
-                        {t.best}점
-                      </td>
-                      <td style={{ ...td, textAlign: "center", color: T.sub }}>
-                        {t.myRank ? `${t.myRank} / ${t.participants}` : "—"}
-                      </td>
-                      <td style={td}>
-                        <FileLinks test={t} />
-                      </td>
-                      <td style={{ ...td, textAlign: "right" }}>
-                        <Btn
-                          size="xs"
-                          variant={t.date === openDate ? "primary" : "soft"}
-                          onClick={() => setOpenDate(t.date === openDate ? "" : t.date)}
-                        >
-                          {t.date === openDate ? "닫기" : "분석"}
-                        </Btn>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-
+          {/* 고른 회차의 상세 결과 (위) */}
           {selected && <TestDetail test={selected} />}
+
+          {/* 지금까지의 성적 (아래) */}
+          <div style={{ marginTop: 26 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                marginBottom: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <span style={{ fontSize: 16, fontWeight: 800, color: T.ink }}>
+                지금까지의 테스트 성적
+              </span>
+              <span style={{ fontSize: 12.5, color: T.muted }}>
+                {subject} · 전체 {rows.length}회
+              </span>
+            </div>
+
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+              <Stat label="응시 회차" value={myPcts.length} unit="회" />
+              <Stat
+                label="내 평균"
+                value={avgMine ?? "—"}
+                unit={avgMine == null ? "" : "점"}
+                tone={scoreTone(avgMine)}
+              />
+              <Stat label="반 평균" value={avgClass ?? "—"} unit="점" tone={T.sub} />
+              <Stat
+                label="최고 점수"
+                value={myPcts.length ? Math.max(...myPcts) : "—"}
+                unit={myPcts.length ? "점" : ""}
+                tone={T.ok}
+              />
+            </div>
+
+            <Card style={{ overflow: "hidden" }}>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+                  <thead>
+                    <tr>
+                      {[
+                        "실시일",
+                        "내 점수",
+                        "100점 환산",
+                        "클리닉 출결",
+                        "전체 평균",
+                        "최고점",
+                        "등수",
+                        "시험지 · 답지",
+                      ].map((h) => (
+                        <th key={h} style={th}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...rows].reverse().map((t) => {
+                      const on = selected?.date === t.date;
+                      return (
+                        <tr
+                          key={t.date}
+                          onClick={() => setDate(t.date)}
+                          title="이 회차 결과 보기"
+                          style={{
+                            background: on ? T.primarySoft : undefined,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <td
+                            style={{
+                              ...td,
+                              fontWeight: 800,
+                              color: on ? T.primary : T.ink,
+                            }}
+                          >
+                            {formatDay(t.date)}
+                          </td>
+                          <td style={{ ...td, textAlign: "center" }}>
+                            {t.myScore == null ? (
+                              <span style={{ color: T.muted }}>미응시</span>
+                            ) : (
+                              <>
+                                {t.myScore}
+                                <span style={{ color: T.muted }}> / {t.maxScore}</span>
+                              </>
+                            )}
+                          </td>
+                          <td
+                            style={{
+                              ...td,
+                              textAlign: "center",
+                              fontWeight: 800,
+                              color: scoreTone(t.myPct),
+                            }}
+                          >
+                            {t.myPct == null ? "—" : `${t.myPct}점`}
+                          </td>
+                          <td style={{ ...td, textAlign: "center" }}>
+                            {t.myAttendance ? (
+                              <Pill
+                                tone={
+                                  t.myAttendance === "출석"
+                                    ? "ok"
+                                    : t.myAttendance === "지각"
+                                    ? "warn"
+                                    : "bad"
+                                }
+                              >
+                                {t.myAttendance}
+                              </Pill>
+                            ) : (
+                              <span style={{ color: T.muted }}>—</span>
+                            )}
+                          </td>
+                          <td style={{ ...td, textAlign: "center", color: T.sub }}>
+                            {t.avg}점
+                          </td>
+                          <td
+                            style={{ ...td, textAlign: "center", color: T.ok, fontWeight: 700 }}
+                          >
+                            {t.best}점
+                          </td>
+                          <td style={{ ...td, textAlign: "center", color: T.sub }}>
+                            {t.myRank ? `${t.myRank} / ${t.participants}` : "—"}
+                          </td>
+                          <td style={td} onClick={(e) => e.stopPropagation()}>
+                            <FileLinks test={t} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ padding: "10px 14px", fontSize: 12, color: T.muted }}>
+                회차를 누르면 위에서 그 회차의 자세한 결과를 볼 수 있습니다.
+              </div>
+            </Card>
+          </div>
         </>
       )}
     </div>
@@ -897,7 +997,7 @@ export function QuestionAnalysisTab({
                       "채점표",
                       "배점",
                       "난이도",
-                      "전체 오답률",
+                      "전체 정답률",
                       "문제 · 해설",
                     ].map((h) => (
                       <th key={h} style={th}>
@@ -955,7 +1055,7 @@ export function QuestionAnalysisTab({
                               style={{
                                 flex: 1,
                                 height: 8,
-                                background: "#F1F4F9",
+                                background: T.badSoft,
                                 borderRadius: 999,
                                 overflow: "hidden",
                                 minWidth: 56,
@@ -963,15 +1063,19 @@ export function QuestionAnalysisTab({
                             >
                               <div
                                 style={{
-                                  width: `${q.wrongRate}%`,
+                                  width: `${q.correctRate}%`,
                                   height: "100%",
                                   background:
-                                    q.wrongRate >= 60 ? T.bad : q.wrongRate >= 30 ? T.warn : T.ok,
+                                    q.correctRate >= 70
+                                      ? T.ok
+                                      : q.correctRate >= 40
+                                      ? T.warn
+                                      : T.bad,
                                 }}
                               />
                             </div>
                             <span style={{ fontSize: 12.5, fontWeight: 800, color: T.sub }}>
-                              {q.wrongRate}%
+                              {q.correctRate}%
                             </span>
                           </div>
                         </td>
@@ -1467,6 +1571,7 @@ export function WrongNoteTab({
   onToggleBookmark,
   canBookmark,
   typeOrder = [],
+  studentName = "",
 }: {
   tests: TestAnalysis[];
   subject: string;
@@ -1474,6 +1579,7 @@ export function WrongNoteTab({
   subjects: string[];
   termId: string;
   typeOrder?: string[];
+  studentName?: string;
   bookmarks: Set<string>;
   onToggleBookmark: (row: { subject: string; date: string; label: string }, on: boolean) => void;
   canBookmark: boolean;
@@ -1488,6 +1594,13 @@ export function WrongNoteTab({
   const [starredOnly, setStarredOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [help, setHelp] = useState(false);
+  // 오답 PDF 만들기
+  const [pdfOpen, setPdfOpen] = useState(false);
+  const [pdfKind, setPdfKind] = useState<"question" | "answer" | "both">("both");
+  const [pdfBusy, setPdfBusy] = useState("");
+  // 왼쪽 체크로 고른 문항 (비어 있으면 화면에 보이는 전체가 대상)
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const rowKey = (w: WrongRow) => `${w.date}|${w.label}`;
   const [viewer, setViewer] = useState<{
     title: string;
     fileId: string;
@@ -1498,6 +1611,7 @@ export function WrongNoteTab({
   useEffect(() => {
     setTypes(new Set());
     setStarredOnly(false);
+    setPicked(new Set());
     setPage(1);
   }, [subject, termId]);
 
@@ -1556,6 +1670,15 @@ export function WrongNoteTab({
     });
   }, [pool, types, sort, subject, typeOrder]);
 
+  const allPicked =
+    filtered.length > 0 && filtered.every((w) => picked.has(rowKey(w)));
+
+  // PDF 대상: 체크한 문항이 있으면 그것만, 없으면 조건에 걸린 전체
+  const pdfTargets = useMemo(
+    () => (picked.size ? filtered.filter((w) => picked.has(rowKey(w))) : filtered),
+    [filtered, picked]
+  );
+
   const pageCount = Math.max(1, Math.ceil(filtered.length / WRONG_PAGE_SIZE));
   const current = Math.min(page, pageCount);
   const rows = filtered.slice(
@@ -1596,6 +1719,15 @@ export function WrongNoteTab({
           {subject} · {starredOnly ? `별표 ${starred.length}문항` : `틀린 문항 ${wrongs.length}개`}
         </span>
         <div style={{ flex: 1 }} />
+        <Btn
+          variant="outline"
+          size="sm"
+          disabled={filtered.length === 0}
+          onClick={() => setPdfOpen(true)}
+          title="지금 화면에 걸린 조건대로 오답만 모아 PDF 로 만듭니다"
+        >
+          <FileDown size={14} /> 오답 PDF
+        </Btn>
         <Btn variant="outline" size="sm" onClick={() => setHelp(true)}>
           <HelpCircle size={14} /> 오답 노트란?
         </Btn>
@@ -1632,6 +1764,19 @@ export function WrongNoteTab({
             필터 해제
           </Btn>
         )}
+        <Btn
+          variant={allPicked ? "primary" : "outline"}
+          size="sm"
+          disabled={filtered.length === 0}
+          onClick={() =>
+            setPicked(allPicked ? new Set() : new Set(filtered.map(rowKey)))
+          }
+          title="쪽을 넘기지 않아도 지금 조건의 문항을 한 번에 고릅니다"
+        >
+          <CheckSquare size={14} />
+          {allPicked ? "전체 해제" : "전체 선택"}
+          {picked.size > 0 && ` (${picked.size})`}
+        </Btn>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: T.muted }}>
           표 상단을 누르면 해당 기준으로 정렬됩니다
@@ -1662,6 +1807,7 @@ export function WrongNoteTab({
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 780 }}>
                 <thead>
                   <tr>
+                    <th style={{ ...th, width: 36 }} />
                     <th style={{ ...th, width: 34 }} />
                     <SortTh label="회차" sortKey="date" sort={sort} onSort={onSort} align="left" />
                     <SortTh label="문번" sortKey="no" sort={sort} onSort={onSort} />
@@ -1683,7 +1829,27 @@ export function WrongNoteTab({
                 </thead>
                 <tbody>
                   {rows.map((w) => (
-                    <tr key={`${w.date}-${w.label}`}>
+                    <tr
+                      key={`${w.date}-${w.label}`}
+                      style={{
+                        background: picked.has(rowKey(w)) ? T.primarySoft : undefined,
+                      }}
+                    >
+                      <td style={{ ...td, textAlign: "center", width: 36 }}>
+                        <input
+                          type="checkbox"
+                          checked={picked.has(rowKey(w))}
+                          onChange={() =>
+                            setPicked((prev) => {
+                              const next = new Set(prev);
+                              const k = rowKey(w);
+                              next.has(k) ? next.delete(k) : next.add(k);
+                              return next;
+                            })
+                          }
+                          style={{ width: 16, height: 16, cursor: "pointer" }}
+                        />
+                      </td>
                       <td style={{ ...td, textAlign: "center", width: 34 }}>{star(w)}</td>
                       <td style={{ ...td, fontWeight: 700 }}>{formatDay(w.date)}</td>
                       <td style={{ ...td, fontWeight: 800 }}>{w.label}</td>
@@ -1735,6 +1901,135 @@ export function WrongNoteTab({
         </>
       )}
 
+      <Modal
+        open={pdfOpen}
+        onClose={() => !pdfBusy && setPdfOpen(false)}
+        title="오답 PDF 만들기"
+        width={540}
+      >
+        <div style={{ fontSize: 14, color: T.ink, lineHeight: 1.75, marginBottom: 16 }}>
+          선택한 문항을 모아 PDF 파일로 만듭니다.
+          <br />
+          왼쪽 칸을 체크해두면 체크한 문항만 담고, 아무것도 체크하지 않으면 조건에 해당하는
+          문항 전체를 담습니다.
+          <div
+            style={{
+              marginTop: 10,
+              padding: "9px 12px",
+              background: T.primarySoft,
+              borderRadius: 9,
+              fontSize: 13.5,
+              fontWeight: 700,
+              color: T.primary,
+            }}
+          >
+            이번에 담길 문항 {pdfTargets.length}개
+            {picked.size > 0 ? " (체크한 문항)" : " (조건에 해당하는 전체)"}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
+          {(
+            [
+              ["both", "문제지 + 해설지 (파일 2개)", "문제지와 해설지를 따로 받습니다."],
+              ["question", "문제지만", ""],
+              ["answer", "해설지만", ""],
+            ] as const
+          ).map(([k, title, desc]) => (
+            <label
+              key={k}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+                padding: "11px 13px",
+                borderRadius: 11,
+                border: `1px solid ${pdfKind === k ? T.primary : T.line}`,
+                background: pdfKind === k ? T.primarySoft : "#fff",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="radio"
+                name="pdfKind"
+                checked={pdfKind === k}
+                onChange={() => setPdfKind(k)}
+                style={{ marginTop: 3 }}
+              />
+              <span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: T.ink }}>{title}</span>
+                {desc && (
+                  <>
+                    <br />
+                    <span style={{ fontSize: 12.5, color: T.sub }}>{desc}</span>
+                  </>
+                )}
+              </span>
+            </label>
+          ))}
+        </div>
+
+        {pdfBusy && (
+          <div style={{ fontSize: 13, color: T.primary, fontWeight: 700, marginBottom: 10 }}>
+            {pdfBusy}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <Btn variant="outline" size="sm" disabled={!!pdfBusy} onClick={() => setPdfOpen(false)}>
+            취소
+          </Btn>
+          <Btn
+            size="sm"
+            disabled={!!pdfBusy || pdfTargets.length === 0}
+            onClick={async () => {
+              try {
+                const { buildWrongNotePdf } = await import("@/lib/wrong-pdf");
+                const items = pdfTargets.map((w) => {
+                  const { question, answer } = pickRegions(w.regions);
+                  return {
+                    title: `${formatDay(w.date)} ${w.label}번${w.type ? ` · ${w.type}` : ""}`,
+                    question: question ?? undefined,
+                    answer: answer ?? undefined,
+                  };
+                });
+                const kinds: ("question" | "answer")[] =
+                  pdfKind === "both" ? ["question", "answer"] : [pdfKind];
+                const missing = new Set<string>();
+                for (const mode of kinds) {
+                  setPdfBusy(
+                    `${mode === "question" ? "문제지" : "해설지"} 만드는 중… 0/${items.length}`
+                  );
+                  const res = await buildWrongNotePdf(items, {
+                    subject,
+                    studentName,
+                    mode,
+                    onProgress: (d, t) =>
+                      setPdfBusy(
+                        `${mode === "question" ? "문제지" : "해설지"} 만드는 중… ${d}/${t}`
+                      ),
+                  });
+                  res.skipped.forEach((x) => missing.add(x));
+                }
+                setPdfBusy("");
+                setPdfOpen(false);
+                if (missing.size) {
+                  alert(
+                    `자료가 없어 빠진 문항 ${missing.size}개:\n` +
+                      [...missing].slice(0, 10).join("\n")
+                  );
+                }
+              } catch (e: any) {
+                setPdfBusy("");
+                alert(e?.message || "PDF 를 만들지 못했습니다.");
+              }
+            }}
+          >
+            <FileDown size={14} /> {pdfBusy ? "만드는 중…" : "PDF 받기"}
+          </Btn>
+        </div>
+      </Modal>
+
       <Modal open={help} onClose={() => setHelp(false)} title="오답 노트 사용법" width={560}>
         <div style={{ fontSize: 14, color: T.ink, lineHeight: 1.8 }}>
           <p style={{ marginTop: 0, fontWeight: 700 }}>틀린 문항만 모아 놓은 곳입니다.</p>
@@ -1753,6 +2048,10 @@ export function WrongNoteTab({
             </li>
             <li>
               <b>문제 · 답·해설</b> — 틀렸던 문제의 문제 / 해설을 볼 수 있습니다.
+            </li>
+            <li>
+              <b>오답 PDF</b> — 왼쪽 칸을 체크해 고른 문항(또는 화면에 걸린 조건 전체)으로
+              <b> 문제지</b>와 <b>해설지</b>를 만들어 받습니다.
             </li>
           </ul>
         </div>
@@ -1851,6 +2150,16 @@ function WrongNoteActions({
     </div>
   );
 }
+
+const pdfOptionRow: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 9,
+  fontSize: 14,
+  fontWeight: 700,
+  color: T.ink,
+  cursor: "pointer",
+};
 
 const linkChip: React.CSSProperties = {
   display: "inline-flex",

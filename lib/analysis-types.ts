@@ -87,6 +87,9 @@ export interface TestAnalysis {
   myPct: number | null;
   myRank: number | null;
   myAttendance: string;
+  /** 그날 과제 수행 (1=O, 0.5=△, 0=X, null=입력 없음) */
+  myHwDone: number | null;
+  myHwSsen: number | null;
   myMarks: Record<number, MarkSymbol>;
   detail: string;
   files: FileMeta[];

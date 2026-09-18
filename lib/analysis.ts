@@ -40,6 +40,8 @@ type SessionLike = {
   attendance?: string;
   submitted?: boolean;
   attnAdmin?: boolean;
+  hwDone?: number | null;
+  hwSsen?: number | null;
   testScore?: number | null;
   testMaxOverride?: number | null;
   testAnswers?: unknown;
@@ -300,6 +302,8 @@ export async function buildTestAnalyses(
       myRank: myPct == null ? null : rankOf(myPct, pcts),
       myAttendance:
         mine && (mine.submitted || mine.attnAdmin) ? String(mine.attendance ?? "") : "",
+      myHwDone: mine?.hwDone ?? null,
+      myHwSsen: mine?.hwSsen ?? null,
       myMarks: myGrade?.marks ?? {},
       detail: (config?.detail ?? "") as string,
       files: (filesByKey.get(key) ?? []).filter(() => published),

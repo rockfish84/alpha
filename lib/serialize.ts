@@ -25,6 +25,7 @@ export function serializeRoster(enr: any, stu: any, parent?: any) {
     name: stu.name as string,
     username: stu.username as string,
     password: (stu.passwordPlain ?? "") as string,
+    school: (stu.school ?? "") as string,
     grade: (enr.grade ?? "") as string,
     subjects: (enr.subjects ?? []) as string[],
     status: (enr.status ?? "재원") as "재원" | "퇴원",
