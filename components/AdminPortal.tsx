@@ -2405,7 +2405,7 @@ function isLocalBase(base: string): boolean {
 function greetingText(subject: string): string {
   return (
     `안녕하세요 더브코 알파 오현민T 조교입니다.\n` +
-    `이번 주 ${subject} 퀴즈 점수 및 과제 진행률 안내 드립니다 :)`
+    `이번 주 ${subject} 퀴즈 점수 및 과제 진행 여부 알려드립니다 :)`
   );
 }
 
@@ -2522,7 +2522,7 @@ function buildWeeklyText(blocks: WeekBlock[]): string {
   const subs = [...new Set(blocks.map((b) => b.subject))].join(", ");
   const header =
     `안녕하세요 더브코 알파 오현민T 조교입니다.\n` +
-    `이번 주 ${subs} 퀴즈 점수 및 과제 진행률 안내 드립니다 :)`;
+    `이번 주 ${subs} 퀴즈 점수 및 과제 진행 여부 알려드립니다 :)`;
   const additional = blocks
     .map((b) => b.additionalMessage.trim())
     .filter(Boolean)
@@ -2636,7 +2636,8 @@ function AdminWeekly({
   /** 고른 회차마다 학생별 공유 링크를 발급받아 "학생|반|날짜 → URL" 로 돌려준다. */
   const loadLinks = async (): Promise<Record<string, string>> => {
     // 문자에 들어갈 주소가 localhost 면 학부모 휴대폰에서 열리지 않는다.
-    if (isLocalBase(shareLinkBase())) {
+    // (테스트 발송은 내 번호로만 가므로 흐름 확인용으로 허용)
+    if (!testMode && isLocalBase(shareLinkBase())) {
       throw new Error(
         "지금 주소(localhost)로는 문자 속 링크가 휴대폰에서 열리지 않습니다. " +
           "배포된 사이트 주소로 접속해서 보내거나, .env 에 NEXT_PUBLIC_SITE_URL 을 설정하세요."
