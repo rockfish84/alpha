@@ -477,6 +477,114 @@ function HomeworkRow({
 }
 
 /* ============================== 회차 상세 ============================== */
+/** 좁은 화면(휴대폰)인지. 문자로 받은 링크는 대부분 휴대폰에서 열린다. */
+function useNarrow(maxWidth = 720): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${maxWidth}px)`);
+    const sync = () => setNarrow(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, [maxWidth]);
+  return narrow;
+}
+
+/** 휴대폰에서 보는 문항 목록 — 가로 스크롤 대신 문항마다 카드 한 장. */
+function QuestionCards({ rows }: { rows: QuestionAnalysis[] }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {rows.map((q) => (
+        <div
+          key={q.label}
+          style={{
+            border: `1px solid ${T.line}`,
+            borderRadius: 12,
+            padding: "11px 12px",
+            background: "#fff",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 15, fontWeight: 900, color: T.ink }}>{q.label}번</span>
+            <span
+              style={{
+                fontSize: 15,
+                fontWeight: 900,
+                color: q.myCorrect ? T.ok : T.bad,
+              }}
+            >
+              {q.myCorrect ? "O" : "X"}
+            </span>
+            <div style={{ flex: 1 }} />
+            <span style={{ fontSize: 12, color: T.muted }}>배점 {q.points}</span>
+          </div>
+
+          <div style={{ fontSize: 13.5, color: q.type ? T.ink : T.muted, marginTop: 4 }}>
+            {q.type || "유형 미입력"}
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: 14,
+              flexWrap: "wrap",
+              fontSize: 13,
+              marginTop: 8,
+            }}
+          >
+            <span style={{ color: T.sub }}>
+              정답{" "}
+              <b style={{ color: T.ok }}>{displayAnswer(q.answer) || "—"}</b>
+            </span>
+            <span style={{ color: T.sub }}>
+              나의 답안{" "}
+              <b style={{ color: q.myAnswered ? (q.myCorrect ? T.ink : T.bad) : T.muted }}>
+                {q.myAnswered ? q.myAnswer : "무응답"}
+              </b>
+            </span>
+          </div>
+
+          <div
+            style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 9 }}
+          >
+            <span style={{ fontSize: 12, color: T.sub, whiteSpace: "nowrap" }}>
+              전체 정답률
+            </span>
+            <div
+              style={{
+                flex: 1,
+                height: 8,
+                background: T.badSoft,
+                borderRadius: 999,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${q.correctRate}%`,
+                  height: "100%",
+                  background:
+                    q.correctRate >= 70 ? T.ok : q.correctRate >= 40 ? T.warn : T.bad,
+                }}
+              />
+            </div>
+            <span style={{ fontSize: 12.5, fontWeight: 800, color: T.sub }}>
+              {q.correctRate}%
+            </span>
+          </div>
+
+          {!!q.choiceShares.length && (
+            <div style={{ marginTop: 9 }}>
+              <div style={{ fontSize: 12, color: T.sub, marginBottom: 5 }}>답안 분포</div>
+              <ChoiceBars q={q} />
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function TestDetail({
   test,
   hideFiles = false,
@@ -489,6 +597,7 @@ export function TestDetail({
     () => [...test.questions].sort((a, b) => a.wrongRank - b.wrongRank || a.no - b.no),
     [test.questions]
   );
+  const narrow = useNarrow();
 
   return (
     <Card style={{ padding: 18, marginTop: 14 }}>
@@ -559,6 +668,8 @@ export function TestDetail({
         >
           이 회차는 문항별 답안이 등록되지 않아 점수 통계만 제공됩니다.
         </div>
+      ) : narrow ? (
+        <QuestionCards rows={rows} />
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
