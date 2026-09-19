@@ -19,6 +19,7 @@ import { api } from "@/lib/api";
 import { getClinicDatesForSubject } from "@/lib/clinic-dates";
 import { normalizeClosedSubjects, visibleSubjects } from "@/lib/subject-status";
 import {
+  ANSWER_ALT_SEPARATOR,
   DEFAULT_CHOICES,
   DEFAULT_QUESTION_COUNT,
   MATH_SYMBOLS,
@@ -57,6 +58,7 @@ interface RosterRow {
   attendance: string;
   attended: boolean;
   answers: AnswerMap;
+  excluded?: string[];
   score: number | null;
   pct: number | null;
   manualScore: number | null;
@@ -267,14 +269,20 @@ function AnswerInput({
   value,
   onChange,
   onFocus,
+  onKeyDown,
   placeholder,
   style,
+  dataRow,
+  dataCol,
 }: {
   value: string;
   onChange: (v: string) => void;
   onFocus: (el: HTMLInputElement) => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   placeholder?: string;
   style?: React.CSSProperties;
+  dataRow?: number;
+  dataCol?: number;
 }) {
   const ref = useRef<HTMLInputElement>(null);
   const caretRef = useRef<number | null>(null);
@@ -292,6 +300,9 @@ function AnswerInput({
       value={value}
       placeholder={placeholder}
       style={style}
+      data-krow={dataRow}
+      data-kcol={dataCol}
+      onKeyDown={onKeyDown}
       onFocus={(e) => onFocus(e.currentTarget)}
       onChange={(e) => {
         const raw = e.target.value;
@@ -501,6 +512,69 @@ function AnswerKeyEditor({
   };
 
   const rows = sortQuestions(questions);
+
+  /**
+   * 난이도는 시험지에서 늘 오름차순이라, 한 문항을 고르면 그 아래 문항까지 같이 맞춘다.
+   * (1번을 "하"로 하면 전부 "하", 이어서 6번을 "중"으로 하면 6번부터 끝까지 "중")
+   */
+  const setDifficultyFrom = (index: number, difficulty: Difficulty) => {
+    const targets = new Set(
+      rows.slice(index).map((q) => `${q.no}-${q.part}`)
+    );
+    setQuestions(
+      questions.map((q) =>
+        targets.has(`${q.no}-${q.part}`) ? { ...q, difficulty } : q
+      )
+    );
+  };
+
+  /** 한 시험지는 유형이 같은 경우가 많아, 첫 문항 유형으로 전부 맞춘다. */
+  const unifyTypes = () => {
+    const first = rows[0]?.type ?? "";
+    if (!first.trim()) {
+      alert("먼저 1번 문항의 유형(출제 단원)을 적어 주세요.");
+      return;
+    }
+    setQuestions(questions.map((q) => ({ ...q, type: first })));
+  };
+
+  // 답안 키 표 안에서 방향키로 칸을 옮긴다 (0 정답 · 1 배점 · 2 유형 · 3 난이도)
+  const keyGridRef = useRef<HTMLTableSectionElement>(null);
+  const KEY_LAST_COL = 3;
+  const focusKeyCell = (row: number, col: number) => {
+    const el = keyGridRef.current?.querySelector<HTMLInputElement | HTMLSelectElement>(
+      `[data-krow="${row}"][data-kcol="${col}"]`
+    );
+    if (!el) return;
+    el.focus();
+    if (el instanceof HTMLInputElement) el.select();
+  };
+  const onKeyNav = (
+    e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>,
+    row: number,
+    col: number
+  ) => {
+    const el = e.currentTarget;
+    const isText = el instanceof HTMLInputElement;
+    const atEnd = !isText || (el.selectionStart ?? 0) === el.value.length;
+    const atStart = !isText || (el.selectionStart ?? 0) === 0;
+    const lastRow = rows.length - 1;
+    if (e.key === "Enter" || e.key === "ArrowDown") {
+      e.preventDefault();
+      focusKeyCell(Math.min(lastRow, row + 1), col);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      focusKeyCell(Math.max(0, row - 1), col);
+    } else if (e.key === "ArrowRight" && atEnd) {
+      e.preventDefault();
+      if (col < KEY_LAST_COL) focusKeyCell(row, col + 1);
+      else if (row < lastRow) focusKeyCell(row + 1, 0);
+    } else if (e.key === "ArrowLeft" && atStart) {
+      e.preventDefault();
+      if (col > 0) focusKeyCell(row, col - 1);
+      else if (row > 0) focusKeyCell(row - 1, KEY_LAST_COL);
+    }
+  };
   // 배점 합이 100.03 처럼 딱 떨어지지 않아도 만점은 항상 100점 (점수는 비율로 계산)
   const hasPoints = totalPoints(questions) > 0;
   const hasParts = (no: number) => questions.some((q) => q.no === no && q.part);
@@ -609,6 +683,14 @@ function AnswerKeyEditor({
             <Btn variant="outline" size="sm" onClick={() => setAllChoices(0)}>
               전체 단답형
             </Btn>
+            <Btn
+              variant="outline"
+              size="sm"
+              onClick={unifyTypes}
+              title="모든 문항의 유형(출제 단원)을 1번 문항과 같게 맞춥니다"
+            >
+              1번 문항과 유형 통일
+            </Btn>
           </div>
         </div>
         <div style={{ fontSize: 12.5, color: T.sub, lineHeight: 1.6, flex: 1, minWidth: 240 }}>
@@ -619,6 +701,9 @@ function AnswerKeyEditor({
           정답은 <b>문자·문자열</b>도 됩니다. 복수 정답은 <b>|</b> 로 구분하세요 (예: <b>3|③</b>).
           <br />
           그날 푼 문항만 채점하려면 표에서 <b>N번 삭제</b>로 빼면 됩니다 (예: 4·7·10번만 남기기).
+          <br />
+          표 안에서는 <b>↑ ↓ ← →</b> 로 칸을 옮길 수 있고, <b>난이도</b>를 고르면 그 아래 문항까지
+          같은 난이도로 맞춰집니다 (난이도는 오름차순).
         </div>
       </div>
 
@@ -722,8 +807,8 @@ function AnswerKeyEditor({
               ))}
             </tr>
           </thead>
-          <tbody>
-            {rows.map((q) => {
+          <tbody ref={keyGridRef}>
+            {rows.map((q, rowIndex) => {
               const label = questionLabel(q);
               const isFirstOfNo =
                 rows.findIndex((x) => x.no === q.no) === rows.indexOf(q);
@@ -745,6 +830,9 @@ function AnswerKeyEditor({
                       style={{ ...cellBase, fontWeight: 700, textAlign: "left" }}
                       value={q.answer}
                       placeholder="정답"
+                      dataRow={rowIndex}
+                      dataCol={0}
+                      onKeyDown={(e) => onKeyNav(e, rowIndex, 0)}
                       onFocus={(el) => {
                         activeAnswer.current = { el, no: q.no, part: q.part };
                         setActiveLabel(label);
@@ -764,6 +852,9 @@ function AnswerKeyEditor({
                       <input
                         style={cellBase}
                         inputMode="decimal"
+                        data-krow={rowIndex}
+                        data-kcol={1}
+                        onKeyDown={(e) => onKeyNav(e, rowIndex, 1)}
                         value={String(q.points)}
                         onChange={(e) =>
                           patch(q.no, q.part, { points: Number(e.target.value) || 0 })
@@ -776,6 +867,9 @@ function AnswerKeyEditor({
                       style={{ ...cellBase, textAlign: "left" }}
                       value={q.type}
                       placeholder="예: 삼각함수 그래프"
+                      data-krow={rowIndex}
+                      data-kcol={2}
+                      onKeyDown={(e) => onKeyNav(e, rowIndex, 2)}
                       onChange={(e) => patch(q.no, q.part, { type: e.target.value })}
                     />
                   </td>
@@ -783,10 +877,12 @@ function AnswerKeyEditor({
                     <select
                       style={{ ...cellBase, padding: "6px" }}
                       value={q.difficulty}
+                      data-krow={rowIndex}
+                      data-kcol={3}
+                      title="이 문항부터 아래 문항까지 같은 난이도로 맞춰집니다"
+                      onKeyDown={(e) => onKeyNav(e, rowIndex, 3)}
                       onChange={(e) =>
-                        patch(q.no, q.part, {
-                          difficulty: e.target.value as Difficulty,
-                        })
+                        setDifficultyFrom(rowIndex, e.target.value as Difficulty)
                       }
                     >
                       <option value="">-</option>
@@ -1109,13 +1205,17 @@ function AnswerGrid({
   questions,
   roster,
   answers,
+  excluded,
   setAnswer,
+  toggleExcluded,
   autoAdvance,
 }: {
   questions: TestQuestion[];
   roster: RosterRow[];
   answers: Record<string, AnswerMap>;
+  excluded: Record<string, string[]>;
   setAnswer: (studentId: string, label: string, value: string) => void;
+  toggleExcluded: (studentId: string, label: string) => void;
   autoAdvance: boolean;
 }) {
   const gridRef = useRef<HTMLTableSectionElement>(null);
@@ -1143,28 +1243,86 @@ function AnswerGrid({
     }
   };
 
+  /** 그 학생이 안 푸는 문항으로 막아 둔 칸인지 */
+  const isOff = (row: number, col: number) =>
+    !!roster[row] &&
+    !!questions[col] &&
+    (excluded[roster[row].studentId] ?? []).includes(questionLabel(questions[col]));
+
+  /**
+   * 막아 둔 칸은 건너뛰며 한 방향으로 이동한다.
+   * 그 방향에 들어갈 수 있는 칸이 없으면 제자리에 남는다.
+   */
+  const moveFocus = (row: number, col: number, dRow: number, dCol: number) => {
+    let r = row + dRow;
+    let c = col + dCol;
+    while (r >= 0 && r < roster.length && c >= 0 && c < questions.length) {
+      if (!isOff(r, c)) {
+        focusCell(r, c);
+        return true;
+      }
+      r += dRow;
+      c += dCol;
+    }
+    return false;
+  };
+
+  /** 그 문항에서 답을 넣을 수 있는 첫 학생으로 (Enter 로 다음 문항에 넘어갈 때) */
+  const focusColumnTop = (col: number) => {
+    for (let r = 0; r < roster.length; r++) {
+      if (!isOff(r, col)) {
+        focusCell(r, col);
+        return true;
+      }
+    }
+    return false;
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, row: number, col: number) => {
     const last = questions.length - 1;
+    const mod = e.ctrlKey || e.metaKey;
+
+    // Ctrl/⌘ + Enter : 이 칸에 정답을 그대로 채운다 (복수 정답이면 첫 번째)
+    if (mod && e.key === "Enter") {
+      e.preventDefault();
+      const q = questions[col];
+      // 안 푸는 문항으로 표시한 칸에는 답을 넣지 않는다
+      if (isOff(row, col)) return;
+      const key = (q?.answer ?? "").split(ANSWER_ALT_SEPARATOR)[0].trim();
+      if (key) {
+        setAnswer(roster[row].studentId, questionLabel(q), key);
+        requestAnimationFrame(() => moveFocus(row, col, 0, 1));
+      }
+      return;
+    }
+    // Ctrl/⌘ + \ : 이 학생이 안 푸는 문항으로 표시 / 해제 (미제출과 다르다)
+    if (mod && (e.key === "\\" || e.code === "Backslash" || e.key === "₩")) {
+      e.preventDefault();
+      toggleExcluded(roster[row].studentId, questionLabel(questions[col]));
+      // 표시하고 나면 바로 다음 문항으로 넘어간다 (연달아 표시하기 쉽게)
+      requestAnimationFrame(() => moveFocus(row, col, 0, 1));
+      return;
+    }
     if (e.key === "Enter") {
       e.preventDefault();
       // Enter = 다음 학생 (같은 문항). 마지막 학생이면 다음 문항 첫 학생.
-      if (row + 1 < roster.length) focusCell(row + 1, col);
-      else if (col < last) focusCell(0, col + 1);
+      if (!moveFocus(row, col, 1, 0) && col < last) focusColumnTop(col + 1);
       return;
     }
+    // 방향키는 막아 둔 칸을 건너뛴다.
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      focusCell(Math.min(roster.length - 1, row + 1), col);
+      moveFocus(row, col, 1, 0);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      focusCell(Math.max(0, row - 1), col);
+      moveFocus(row, col, -1, 0);
     } else if (e.key === "ArrowRight" && (e.target as HTMLInputElement).selectionStart ===
       (e.target as HTMLInputElement).value.length) {
       e.preventDefault();
-      if (col < last) focusCell(row, col + 1);
+      moveFocus(row, col, 0, 1);
     } else if (e.key === "ArrowLeft" && (e.target as HTMLInputElement).selectionStart === 0) {
       e.preventDefault();
-      if (col > 0) focusCell(row, col - 1);
+      moveFocus(row, col, 0, -1);
     }
   };
 
@@ -1206,7 +1364,8 @@ function AnswerGrid({
         <tbody ref={gridRef}>
           {roster.map((stu, row) => {
             const mine = answers[stu.studentId] ?? {};
-            const graded = gradeAnswers(questions, mine);
+            const skip = excluded[stu.studentId] ?? [];
+            const graded = gradeAnswers(questions, mine, skip);
             const answered = Object.values(mine).some((v) => v.trim() !== "");
             return (
               <tr key={stu.studentId} style={{ borderBottom: `1px solid ${T.line}` }}>
@@ -1233,15 +1392,17 @@ function AnswerGrid({
                 </td>
                 {questions.map((q, col) => {
                   const label = questionLabel(q);
+                  const off = skip.includes(label);
                   const value = mine[label] ?? "";
-                  const filled = value.trim() !== "";
+                  const filled = !off && value.trim() !== "";
                   const correct = graded.results.find((r) => r.label === label)?.correct;
                   return (
                     <td key={label} style={{ padding: 3 }}>
                       <input
                         data-row={row}
                         data-col={col}
-                        value={value}
+                        value={off ? "/" : value}
+                        readOnly={off}
                         onFocus={(e) => e.currentTarget.select()}
                         onKeyDown={(e) => onKeyDown(e, row, col)}
                         onChange={(e) => {
@@ -1261,21 +1422,35 @@ function AnswerGrid({
                             /[1-9]/.test(v) &&
                             col < questions.length - 1
                           ) {
-                            requestAnimationFrame(() => focusCell(row, col + 1));
+                            requestAnimationFrame(() => moveFocus(row, col, 0, 1));
                           }
                         }}
-                        title={value}
+                        title={
+                          off
+                            ? "이 학생은 안 푸는 문항 (Ctrl+\\ 로 해제) · 만점에서 빠집니다"
+                            : value
+                        }
                         style={{
                           ...cellBase,
                           width: widths[label] ?? CELL_MIN,
                           fontWeight: 700,
-                          background: !filled
+                          background: off
+                            ? "#EEF1F6"
+                            : !filled
                             ? "#fff"
                             : correct
                             ? T.okSoft
                             : T.badSoft,
-                          color: !filled ? T.ink : correct ? T.ok : T.bad,
-                          borderColor: filled ? (correct ? T.ok : T.bad) : T.line,
+                          color: off ? T.muted : !filled ? T.ink : correct ? T.ok : T.bad,
+                          borderColor: off
+                            ? T.line
+                            : filled
+                            ? correct
+                              ? T.ok
+                              : T.bad
+                            : T.line,
+                          borderStyle: off ? "dashed" : "solid",
+                          cursor: off ? "not-allowed" : "text",
                         }}
                       />
                     </td>
@@ -1297,6 +1472,11 @@ function AnswerGrid({
                         {" "}
                         / {graded.max}
                       </span>
+                      {!!skip.length && (
+                        <div style={{ fontSize: 10.5, fontWeight: 600, color: T.muted }}>
+                          {questions.length - skip.length}문항 기준
+                        </div>
+                      )}
                     </>
                   ) : (
                     "—"
@@ -1376,6 +1556,8 @@ export function AdminScores({
   const [roster, setRoster] = useState<RosterRow[]>([]);
   const [files, setFiles] = useState<FileMeta[]>([]);
   const [answers, setAnswers] = useState<Record<string, AnswerMap>>({});
+  // 학생별 "안 푸는 문항" (미제출과 다르다 → 만점에서 빠진다)
+  const [excluded, setExcluded] = useState<Record<string, string[]>>({});
   const [showQuit, setShowQuit] = useState(false);
   const [autoAdvance, setAutoAdvance] = useState(true);
   const [savedAt, setSavedAt] = useState(0);
@@ -1403,8 +1585,13 @@ export function AdminScores({
         setFiles(d.files ?? []);
         setRoster(d.roster ?? []);
         const map: Record<string, AnswerMap> = {};
-        for (const r of d.roster ?? []) map[r.studentId] = { ...r.answers };
+        const skips: Record<string, string[]> = {};
+        for (const r of d.roster ?? []) {
+          map[r.studentId] = { ...r.answers };
+          skips[r.studentId] = [...(r.excluded ?? [])];
+        }
         setAnswers(map);
+        setExcluded(skips);
         if (!silent) {
           setQuestions(
             d.paper.questions.length
@@ -1453,6 +1640,8 @@ export function AdminScores({
   const pending = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const answersRef = useRef(answers);
   answersRef.current = answers;
+  const excludedRef = useRef(excluded);
+  excludedRef.current = excluded;
 
   const flushStudent = useCallback(
     async (studentId: string) => {
@@ -1463,6 +1652,7 @@ export function AdminScores({
           date,
           studentId,
           answers: answersRef.current[studentId] ?? {},
+          excluded: excludedRef.current[studentId] ?? [],
         });
         setRoster((prev) =>
           prev.map((r) =>
@@ -1479,12 +1669,9 @@ export function AdminScores({
     [termId, subject, date]
   );
 
-  const setAnswer = useCallback(
-    (studentId: string, label: string, value: string) => {
-      setAnswers((prev) => ({
-        ...prev,
-        [studentId]: { ...(prev[studentId] ?? {}), [label]: value },
-      }));
+  /** 그 학생 행만 잠시 뒤에 저장한다 (연달아 입력해도 한 번만 저장). */
+  const queueSave = useCallback(
+    (studentId: string) => {
       const timers = pending.current;
       const prevTimer = timers.get(studentId);
       if (prevTimer) clearTimeout(prevTimer);
@@ -1497,6 +1684,39 @@ export function AdminScores({
       );
     },
     [flushStudent]
+  );
+
+  const setAnswer = useCallback(
+    (studentId: string, label: string, value: string) => {
+      setAnswers((prev) => ({
+        ...prev,
+        [studentId]: { ...(prev[studentId] ?? {}), [label]: value },
+      }));
+      queueSave(studentId);
+    },
+    [queueSave]
+  );
+
+  /** 이 학생이 안 푸는 문항으로 표시 / 해제. 표시하면 그 칸의 답안은 지운다. */
+  const toggleExcluded = useCallback(
+    (studentId: string, label: string) => {
+      setExcluded((prev) => {
+        const cur = prev[studentId] ?? [];
+        const next = cur.includes(label)
+          ? cur.filter((l) => l !== label)
+          : [...cur, label];
+        return { ...prev, [studentId]: next };
+      });
+      setAnswers((prev) => {
+        const mine = prev[studentId] ?? {};
+        if (!mine[label]) return prev;
+        const next = { ...mine };
+        delete next[label];
+        return { ...prev, [studentId]: next };
+      });
+      queueSave(studentId);
+    },
+    [queueSave]
   );
 
   useEffect(
@@ -1528,7 +1748,7 @@ export function AdminScores({
     for (const r of visibleRoster) {
       const mine = answers[r.studentId] ?? {};
       if (!Object.values(mine).some((v) => v.trim() !== "")) continue;
-      pcts.push(gradeAnswers(questions, mine).pct);
+      pcts.push(gradeAnswers(questions, mine, excluded[r.studentId] ?? []).pct);
     }
     if (!pcts.length) return null;
     return {
@@ -1536,7 +1756,7 @@ export function AdminScores({
       avg: Math.round(pcts.reduce((a, p) => a + p, 0) / pcts.length),
       best: Math.max(...pcts),
     };
-  }, [visibleRoster, answers, questions]);
+  }, [visibleRoster, answers, excluded, questions]);
 
   const hasKey = (paper?.questions.length ?? 0) > 0;
 
@@ -1753,13 +1973,20 @@ export function AdminScores({
               <>
                 <div style={{ fontSize: 12.5, color: T.sub, marginBottom: 10, lineHeight: 1.6 }}>
                   <b>Enter</b> 다음 학생 · <b>← →</b> 문항 이동 · <b>↑ ↓</b> 학생 이동 ·
-                  입력하면 자동 저장되고 점수가 바로 채점됩니다. 미응시 학생은 비워 두세요.
+                  <b> Ctrl+Enter</b> 정답 채우기 · <b>Ctrl+\</b> 안 푸는 문항 표시/해제
+                  <div style={{ marginTop: 2 }}>
+                    입력하면 자동 저장되고 점수가 바로 채점됩니다. 미응시 학생은 비워 두고,
+                    <b> 그 학생만 안 푸는 문항</b>은 Ctrl+\ 로 표시하면 만점에서 빠져
+                    나머지 문항으로 100점을 다시 나눕니다.
+                  </div>
                 </div>
                 <AnswerGrid
                   questions={gradable}
                   roster={visibleRoster}
                   answers={answers}
+                  excluded={excluded}
                   setAnswer={setAnswer}
+                  toggleExcluded={toggleExcluded}
                   autoAdvance={autoAdvance}
                 />
               </>

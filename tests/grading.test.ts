@@ -14,6 +14,7 @@ import {
   isAnswerCorrect,
   normalizeAnswer,
   normalizeAnswerMap,
+  normalizeExcluded,
   normalizeQuestions,
   questionLabel,
   totalPoints,
@@ -212,4 +213,51 @@ test("점수 분포 구간은 100~91 / 90~71 / 70~51 / 50~31 / 30~0", () => {
   assert.equal(bucketIndex(31), 3);
   assert.equal(bucketIndex(0), 4);
   assert.deepEqual(buildDistribution([100, 95, 80, 60, 40, 10]), [2, 1, 1, 1, 1]);
+});
+
+test("제외 문항은 만점에서 빠지고 남은 문항으로 100점을 다시 나눈다", () => {
+  // 10문항 × 10점. 4·7번을 이 학생만 안 풀면 남은 8문항이 각 12.5점이 된다.
+  const questions = buildQuestions(10).map((x, i) =>
+    ({ ...x, answer: String((i % 5) + 1) })
+  );
+  const answers: Record<string, string> = {};
+  for (const x of questions) answers[questionLabel(x)] = x.answer;
+
+  const all = gradeAnswers(questions, answers);
+  assert.equal(all.score, FULL_SCORE);
+
+  // 제외한 두 문항을 틀려도(비워도) 100점
+  const partial = { ...answers, "4": "", "7": "" };
+  const graded = gradeAnswers(questions, partial, ["4", "7"]);
+  assert.equal(graded.score, FULL_SCORE);
+  assert.deepEqual(graded.excluded.sort(), ["4", "7"]);
+  assert.equal(graded.marks[4], "/");
+  assert.equal(graded.marks[7], "/");
+
+  // 남은 8문항 중 하나를 틀리면 12.5점이 깎인다
+  const oneWrong = { ...partial, "2": "틀린답" };
+  assert.equal(gradeAnswers(questions, oneWrong, ["4", "7"]).score, 87.5);
+});
+
+test("제외 문항은 미제출과 다르다 (미제출은 만점에 그대로 남는다)", () => {
+  const questions = buildQuestions(10).map((x) => ({ ...x, answer: "1" }));
+  const answers: Record<string, string> = {};
+  for (const x of questions) answers[questionLabel(x)] = "1";
+  answers["4"] = "";
+  answers["7"] = "";
+
+  // 그냥 비우면 10문항 기준 → 80점
+  assert.equal(gradeAnswers(questions, answers).score, 80);
+  // 제외하면 8문항 기준 → 100점
+  assert.equal(gradeAnswers(questions, answers, ["4", "7"]).score, FULL_SCORE);
+});
+
+test("제외 목록은 그 회차에 있는 문항만 남긴다", () => {
+  const questions = [q({ no: 1, answer: "1" }), q({ no: 2, part: 1, answer: "2" })];
+  assert.deepEqual(
+    normalizeExcluded(["1", "2-(1)", "99", "", null], questions).sort(),
+    ["1", "2-(1)"]
+  );
+  // 부분문제가 있는 문항의 주 번호는 채점 대상이 아니므로 받아들이지 않는다
+  assert.deepEqual(normalizeExcluded(["2"], questions), []);
 });

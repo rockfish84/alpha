@@ -12,6 +12,12 @@ import {
 import { normalizeRegions } from "./regions";
 import type { QuestionRegion } from "./analysis-types";
 
+/** Mongoose 배열 / lean 결과 → 제외 문항 label 목록. */
+export function toExcludedList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((v) => String(v ?? "")).filter(Boolean);
+}
+
 /** Mongoose Map / lean 결과 / 일반 객체를 모두 답안 객체로 정규화. */
 export function toAnswerMap(value: unknown): AnswerMap {
   if (!value) return {};
@@ -93,7 +99,11 @@ export async function regradeTest(
   for (const d of docs) {
     const answers = toAnswerMap((d as any).testAnswers);
     if (!Object.keys(answers).length) continue;
-    const { score } = gradeAnswers(questions, answers);
+    const { score } = gradeAnswers(
+      questions,
+      answers,
+      toExcludedList((d as any).testExcluded)
+    );
     ops.push({
       updateOne: {
         filter: { _id: d._id },
@@ -119,20 +129,28 @@ export async function saveAndGrade(
   subject: string,
   dateIso: string,
   answers: AnswerMap,
-  questions: TestQuestion[]
+  questions: TestQuestion[],
+  excluded: string[] = []
 ) {
-  const result = gradeAnswers(questions, answers);
+  const result = gradeAnswers(questions, answers, excluded);
   const hasAnswers = Object.keys(answers).length > 0;
   const set: Record<string, any> = hasAnswers
     ? {
         testAnswers: answers,
+        testExcluded: excluded,
         testScore: result.score,
         testAuto: true,
         testScale100: true,
         testMaxOverride: null,
       }
-    : // 답안을 모두 지우면 자동 채점 점수도 함께 비운다.
-      { testAnswers: {}, testScore: null, testAuto: false, testScale100: false };
+    : // 답안을 모두 지우면 자동 채점 점수도 함께 비운다. (제외 문항 표시는 남겨 둔다)
+      {
+        testAnswers: {},
+        testExcluded: excluded,
+        testScore: null,
+        testAuto: false,
+        testScale100: false,
+      };
 
   await Session.findOneAndUpdate(
     { term: termId, student: studentId, subject, date: toDate(dateIso) },

@@ -266,7 +266,8 @@ export interface QuestionResult {
   earned: number;
 }
 
-export type MarkSymbol = "O" | "X" | "△" | "-";
+/** O 정답 · X 오답 · △ 부분정답 · - 미제출 · / 이 학생은 안 푸는 문항(제외) */
+export type MarkSymbol = "O" | "X" | "△" | "-" | "/";
 
 export interface GradeResult {
   score: number;
@@ -276,14 +277,25 @@ export interface GradeResult {
   results: QuestionResult[];
   /** 주 문항 번호별 채점표 (부분문제가 섞이면 △) */
   marks: Record<number, MarkSymbol>;
+  /** 이 학생이 풀지 않는 문항 (점수 계산에서 빠진 문항 label) */
+  excluded: string[];
 }
 
-/** 답안 키 + 학생 답안 → 점수·문항별 정오·채점표. */
+/**
+ * 답안 키 + 학생 답안 → 점수·문항별 정오·채점표.
+ *
+ * `excluded` 는 그 학생이 아예 풀지 않는 문항이다(미제출과 다르다). 제외된 문항은
+ * 만점에서 빠지고, 남은 문항으로 100점을 다시 나눈다. 예를 들어 10문항 중 2문항이
+ * 빠지면 남은 8문항이 각 12.5점이 된다.
+ */
 export function gradeAnswers(
   questions: TestQuestion[],
-  answers: AnswerMap | null | undefined
+  answers: AnswerMap | null | undefined,
+  excluded?: readonly string[] | null
 ): GradeResult {
-  const list = gradableQuestions(questions);
+  const skip = new Set(excluded ?? []);
+  const all = gradableQuestions(questions);
+  const list = skip.size ? all.filter((q) => !skip.has(questionLabel(q))) : all;
   const map = answers ?? {};
   const results: QuestionResult[] = list.map((q) => {
     const label = questionLabel(q);
@@ -309,6 +321,11 @@ export function gradeAnswers(
     byNo.set(r.no, arr);
   }
   const marks: Record<number, MarkSymbol> = {};
+  // 부분문제까지 통째로 빠진 문항은 "/" (이 학생은 안 푸는 문항)
+  if (skip.size) {
+    const kept = new Set(list.map((q) => q.no));
+    for (const q of all) if (!kept.has(q.no)) marks[q.no] = "/";
+  }
   for (const [no, arr] of byNo) {
     const answered = arr.filter((r) => r.answered).length;
     const correct = arr.filter((r) => r.correct).length;
@@ -321,7 +338,8 @@ export function gradeAnswers(
   // 배점이 100 으로 딱 안 떨어져도(예: 100/9) 점수는 비율로 계산해
   // 항상 100점 만점이 되게 한다. 만점이면 정확히 100점.
   const earned = results.reduce((a, r) => a + r.earned, 0);
-  const rawMax = totalPoints(questions);
+  // 제외된 문항은 만점에서도 빠진다 → 남은 문항으로 100점을 다시 나눈 셈이 된다.
+  const rawMax = Math.round(list.reduce((a, q) => a + (q.points || 0), 0) * 100) / 100;
   const score =
     rawMax > 0 ? Math.round((earned / rawMax) * FULL_SCORE * 100) / 100 : 0;
   const max = FULL_SCORE;
@@ -332,7 +350,23 @@ export function gradeAnswers(
     answeredCount: results.filter((r) => r.answered).length,
     results,
     marks,
+    excluded: [...skip],
   };
+}
+
+/** 제외 문항 목록 정규화 (그 회차에 실제로 있는 문항 label 만 남긴다). */
+export function normalizeExcluded(
+  raw: unknown,
+  questions: TestQuestion[]
+): string[] {
+  if (!Array.isArray(raw)) return [];
+  const allowed = new Set(gradableQuestions(questions).map(questionLabel));
+  const out = new Set<string>();
+  for (const v of raw) {
+    const label = String(v ?? "");
+    if (allowed.has(label)) out.add(label);
+  }
+  return [...out];
 }
 
 /** 학생 답안 Map 정규화 (문항 키에 해당하는 값만, 길이 제한). */

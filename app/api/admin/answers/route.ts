@@ -5,7 +5,11 @@ import { requireAdmin } from "@/lib/auth";
 import { resolveTerm } from "@/lib/term";
 import { toDate } from "@/lib/date";
 import { isClinicDate } from "@/lib/clinic-dates";
-import { normalizeAnswerMap, normalizeQuestions } from "@/lib/grading";
+import {
+  normalizeAnswerMap,
+  normalizeExcluded,
+  normalizeQuestions,
+} from "@/lib/grading";
 import { saveAndGrade } from "@/lib/testpaper";
 
 export const dynamic = "force-dynamic";
@@ -56,18 +60,21 @@ export async function PUT(req: Request) {
   }
 
   const answers = normalizeAnswerMap(body.answers, questions);
+  const excluded = normalizeExcluded(body.excluded, questions);
   const result = await saveAndGrade(
     String(term._id),
     String(studentId),
     subject,
     date,
     answers,
-    questions
+    questions,
+    excluded
   );
 
   return NextResponse.json({
     studentId: String(studentId),
     answers,
+    excluded,
     score: Object.keys(answers).length ? result.score : null,
     pct: Object.keys(answers).length ? result.pct : null,
     max: result.max,

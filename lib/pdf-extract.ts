@@ -279,6 +279,33 @@ export function readingOrder(pages: DetectedPage[]) {
   return list;
 }
 
+/** 머리말로 보는 세로 범위 (페이지 위쪽 이 비율 안쪽만 머리말 후보) */
+const HEADER_MAX_RATIO = 0.3;
+
+/**
+ * 머리말(시험지 제목·학원 로고·날짜/출제자 칸)을 자동으로 골라낸다.
+ *
+ * 문항은 왼쪽에 번호가 오는 블록에서 시작한다. 그래서 "그 단에서 첫 번호 블록보다
+ * 위에 있는" 블록은 문항이 아니라 머리말이다. 이어지는 페이지 위쪽은 앞 문항이
+ * 넘어온 것일 수 있으므로 1쪽에서만 본다.
+ */
+export function autoExcludeBlocks(pages: DetectedPage[]): Set<BlockId> {
+  const out = new Set<BlockId>();
+  const first = pages[0];
+  if (!first) return out;
+  first.columns.forEach((col, ci) => {
+    const firstNumbered = col.blocks.findIndex((b) => b.looksLikeStart);
+    // 번호 블록을 아예 못 찾은 단은 건드리지 않는다 (잘못 지우는 것보다 낫다)
+    if (firstNumbered <= 0) return;
+    for (let i = 0; i < firstNumbered; i++) {
+      const b = col.blocks[i];
+      if (b.bottom > first.height * HEADER_MAX_RATIO) break;
+      out.add(blockId(first.page, ci, i));
+    }
+  });
+  return out;
+}
+
 /**
  * 문항 시작 위치 자동 선택.
  * 단(column)의 첫 블록은 새 문항일 가능성이 높으므로 먼저 고르고,
@@ -286,9 +313,10 @@ export function readingOrder(pages: DetectedPage[]) {
  */
 export function autoSelectStarts(
   pages: DetectedPage[],
-  expected: number
+  expected: number,
+  excluded: Set<BlockId> = new Set()
 ): Set<BlockId> {
-  const order = readingOrder(pages);
+  const order = readingOrder(pages).filter((item) => !excluded.has(item.id));
   if (!order.length) return new Set();
   const starts = new Set<BlockId>();
 
@@ -299,15 +327,22 @@ export function autoSelectStarts(
     starts.add(item.id);
   }
 
-  // 번호를 못 찾았으면(스캔 화질 등) 단의 첫 블록을 문항 시작으로 본다.
+  // 번호를 못 찾았으면(스캔 화질 등) 각 단의 첫 블록을 문항 시작으로 본다.
   if (!marked.length) {
-    for (const item of order) if (item.index === 0) starts.add(item.id);
+    const seen = new Set<string>();
+    for (const item of order) {
+      const key = `${item.page}:${item.col}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      starts.add(item.id);
+    }
   }
 
   // 그래도 모자라면 여백이 큰 순서대로 채운다.
   if (starts.size < expected) {
     const gaps = order
       .filter((item) => item.index > 0 && !starts.has(item.id))
+      .filter((item) => !excluded.has(item.id))
       .map((item) => ({
         id: item.id,
         gap:
@@ -322,7 +357,7 @@ export function autoSelectStarts(
     }
   }
 
-  // 항상 첫 블록은 첫 문항의 시작으로 둔다.
+  // 제외하지 않은 첫 블록은 언제나 첫 문항의 시작이다.
   starts.add(order[0].id);
   return starts;
 }
@@ -339,12 +374,13 @@ export interface GroupRect extends RegionRect {
 
 export function regionRectsFor(
   pages: DetectedPage[],
-  starts: Set<BlockId>
+  starts: Set<BlockId>,
+  excluded: Set<BlockId> = new Set()
 ): GroupRect[] {
-  const order = readingOrder(pages);
+  const order = readingOrder(pages).filter((item) => !excluded.has(item.id));
   if (!order.length) return [];
 
-  // 블록 → 몇 번째 문항
+  // 블록 → 몇 번째 문항 (제외한 블록은 어느 문항에도 넣지 않는다)
   const groupOf = new Map<BlockId, number>();
   let g = -1;
   for (const item of order) {
@@ -355,28 +391,36 @@ export function regionRectsFor(
   const rects: GroupRect[] = [];
   for (const page of pages) {
     page.columns.forEach((col, ci) => {
-      if (!col.blocks.length) return;
+      // 제외한 블록(머리말 등)은 없는 셈 치고 묶는다.
+      const blocks = col.blocks.filter(
+        (_, i) => !excluded.has(blockId(page.page, ci, i))
+      );
+      const indexOf = col.blocks
+        .map((_, i) => i)
+        .filter((i) => !excluded.has(blockId(page.page, ci, i)));
+      if (!blocks.length) return;
       // 단 전체의 잉크 가로 범위 (문항마다 폭이 들쭉날쭉하지 않도록 통일)
-      const left = Math.max(0, Math.min(...col.blocks.map((b) => b.left)) - PAD * 2);
+      const left = Math.max(0, Math.min(...blocks.map((b) => b.left)) - PAD * 2);
       const right = Math.min(
         page.width,
-        Math.max(...col.blocks.map((b) => b.right)) + PAD * 2
+        Math.max(...blocks.map((b) => b.right)) + PAD * 2
       );
-      const colBottom = Math.max(...col.blocks.map((b) => b.bottom)) + PAD;
+      const colBottom = Math.max(...blocks.map((b) => b.bottom)) + PAD;
 
       let runStart = 0;
-      for (let i = 0; i <= col.blocks.length; i++) {
-        const cur = i < col.blocks.length ? groupOf.get(blockId(page.page, ci, i)) : null;
-        const prev = groupOf.get(blockId(page.page, ci, runStart));
-        const ended = i === col.blocks.length || cur !== prev;
+      for (let i = 0; i <= blocks.length; i++) {
+        const cur =
+          i < blocks.length ? groupOf.get(blockId(page.page, ci, indexOf[i])) : null;
+        const prev = groupOf.get(blockId(page.page, ci, indexOf[runStart]));
+        const ended = i === blocks.length || cur !== prev;
         if (!ended) continue;
 
-        const top = Math.max(0, col.blocks[runStart].top - PAD);
+        const top = Math.max(0, blocks[runStart].top - PAD);
         // 이 문항에 속한 마지막 잉크까지 담되, 다음 문항 시작은 넘지 않는다.
         // (마지막 보기 ⑤ 가 잘리지 않으면서 빈 여백은 과하게 담지 않도록)
-        const inkBottom = col.blocks[i - 1]?.bottom ?? col.blocks[runStart].bottom;
+        const inkBottom = blocks[i - 1]?.bottom ?? blocks[runStart].bottom;
         const limit =
-          i < col.blocks.length ? col.blocks[i].top - 2 : Math.min(page.height, colBottom);
+          i < blocks.length ? blocks[i].top - 2 : Math.min(page.height, colBottom);
         const bottom = Math.max(top + 10, Math.min(inkBottom + PAD * 2, limit));
         rects.push({
           group: prev ?? 0,
@@ -402,9 +446,10 @@ export function buildRegions(
   starts: Set<BlockId>,
   numbers: number[],
   kind: "paper" | "solution",
-  fileId: string
+  fileId: string,
+  excluded: Set<BlockId> = new Set()
 ): QuestionRegion[] {
-  const rects = regionRectsFor(pages, starts);
+  const rects = regionRectsFor(pages, starts, excluded);
   const byGroup = new Map<number, RegionRect[]>();
   for (const r of rects) {
     const { group, col, ...rect } = r;

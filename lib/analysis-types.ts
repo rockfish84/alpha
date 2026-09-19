@@ -68,6 +68,8 @@ export interface QuestionAnalysis {
   topWrongRate: number | null;
   myAnswer: string;
   myAnswered: boolean;
+  /** 이 학생은 안 푸는 문항 (점수·오답 노트에서 빠진다) */
+  myExcluded?: boolean;
   myCorrect: boolean;
   choiceShares: ChoiceShare[];
 }

@@ -24,7 +24,7 @@ import {
   type MarkSymbol,
   type TestQuestion,
 } from "./grading";
-import { serializeTestPaper, toAnswerMap } from "./testpaper";
+import { serializeTestPaper, toAnswerMap, toExcludedList } from "./testpaper";
 import { normalizeRegions } from "./regions";
 
 const TOP_GROUP_RATIO = 0.3; // 상위 30%
@@ -45,6 +45,7 @@ type SessionLike = {
   testScore?: number | null;
   testMaxOverride?: number | null;
   testAnswers?: unknown;
+  testExcluded?: unknown;
 };
 
 function pctOf(score: number, max: number): number {
@@ -107,13 +108,21 @@ export async function buildTestAnalyses(
       : (config?.maxScore ?? FULL_SCORE) || FULL_SCORE;
 
     // 응시자: 답안 키가 있으면 답안 입력자, 없으면 점수 입력자
-    type Scored = { row: SessionLike; score: number; pct: number; answers: Record<string, string> };
+    type Scored = {
+      row: SessionLike;
+      score: number;
+      pct: number;
+      answers: Record<string, string>;
+      /** 그 학생이 안 푸는 문항 (문항별 통계에서 분모에도 빠진다) */
+      skip: Set<string>;
+    };
     const scored: Scored[] = [];
     for (const row of rows) {
       const answers = toAnswerMap(row.testAnswers);
+      const skip = new Set(toExcludedList(row.testExcluded));
       if (hasKey && Object.keys(answers).length) {
-        const g = gradeAnswers(questions, answers);
-        scored.push({ row, score: g.score, pct: g.pct, answers });
+        const g = gradeAnswers(questions, answers, [...skip]);
+        scored.push({ row, score: g.score, pct: g.pct, answers, skip });
       } else if (!hasKey && row.testScore != null) {
         const max = row.testMaxOverride ?? paperMax;
         scored.push({
@@ -121,6 +130,7 @@ export async function buildTestAnalyses(
           score: Number(row.testScore),
           pct: pctOf(Number(row.testScore), max || 1),
           answers: {},
+          skip,
         });
       }
     }
@@ -150,12 +160,14 @@ export async function buildTestAnalyses(
       });
       for (const q of gradable) {
         const label = questionLabel(q);
+        // 이 문항을 푼 학생만으로 정답률·답안 분포를 낸다.
+        const takers = scored.filter((s) => !s.skip.has(label));
         let correct = 0;
         const choiceCount = new Map<string, number>();
         // 같은 답이라도 표기가 다를 수 있어(0≤a / 0<=a) 비교는 정규화 값으로 하고,
         // 화면에는 학생이 실제로 쓴 표기를 보여 준다.
         const choiceLabel = new Map<string, string>();
-        for (const s of scored) {
+        for (const s of takers) {
           const given = s.answers[label] ?? "";
           if (isAnswerCorrect(given, q.answer)) correct += 1;
           const norm = normalizeAnswer(given);
@@ -165,17 +177,19 @@ export async function buildTestAnalyses(
             choiceLabel.set(bucket, bucket === NO_ANSWER ? NO_ANSWER : given.trim());
           }
         }
-        const total = scored.length;
-        const correctRate = Math.round((correct / total) * 100);
+        const total = takers.length;
+        const correctRate = total ? Math.round((correct / total) * 100) : 0;
 
         let topWrongRate: number | null = null;
-        if (topGroup.length >= MIN_TOP_GROUP) {
-          const topWrong = topGroup.filter(
+        const topTakers = topGroup.filter((s) => !s.skip.has(label));
+        if (topTakers.length >= MIN_TOP_GROUP) {
+          const topWrong = topTakers.filter(
             (s) => !isAnswerCorrect(s.answers[label] ?? "", q.answer)
           ).length;
-          topWrongRate = Math.round((topWrong / topGroup.length) * 100);
+          topWrongRate = Math.round((topWrong / topTakers.length) * 100);
         }
 
+        const myExcluded = !!mineScored && mineScored.skip.has(label);
         const myAnswer = mineScored ? mineScored.answers[label] ?? "" : "";
         const myNorm = normalizeAnswer(myAnswer);
         const myBucket = myNorm === "" ? NO_ANSWER : myNorm;
@@ -236,7 +250,7 @@ export async function buildTestAnalyses(
           choice,
           label: labelOf(choice),
           count,
-          ratio: Math.round((count / total) * 100),
+          ratio: total ? Math.round((count / total) * 100) : 0,
           mine: choice === myBucket,
           correct: choice !== NO_ANSWER && choice !== ETC && accepted.includes(choice),
         });
@@ -274,6 +288,7 @@ export async function buildTestAnalyses(
           myAnswer,
           myAnswered: myNorm !== "",
           myCorrect: isAnswerCorrect(myAnswer, q.answer),
+          myExcluded,
           choiceShares: shares,
         });
       }
@@ -286,7 +301,9 @@ export async function buildTestAnalyses(
     }
 
     const myGrade =
-      hasKey && mineScored ? gradeAnswers(questions, mineScored.answers) : null;
+      hasKey && mineScored
+        ? gradeAnswers(questions, mineScored.answers, [...mineScored.skip])
+        : null;
 
     out.push({
       subject,

@@ -539,7 +539,7 @@ function QuestionCards({ rows }: { rows: QuestionAnalysis[] }) {
             <span style={{ color: T.sub }}>
               나의 답안{" "}
               <b style={{ color: q.myAnswered ? (q.myCorrect ? T.ink : T.bad) : T.muted }}>
-                {q.myAnswered ? q.myAnswer : "무응답"}
+                {q.myExcluded ? "시험 제외" : q.myAnswered ? q.myAnswer : "무응답"}
               </b>
             </span>
           </div>
@@ -725,17 +725,17 @@ export function TestDetail({
                       color: q.myAnswered ? (q.myCorrect ? T.ink : T.bad) : T.muted,
                     }}
                   >
-                    {q.myAnswered ? q.myAnswer : "무응답"}
+                    {q.myExcluded ? "시험 제외" : q.myAnswered ? q.myAnswer : "무응답"}
                   </td>
                   <td style={{ ...td, textAlign: "center" }}>
                     <span
                       style={{
                         fontWeight: 900,
                         fontSize: 15,
-                        color: q.myCorrect ? T.ok : T.bad,
+                        color: q.myExcluded ? T.muted : q.myCorrect ? T.ok : T.bad,
                       }}
                     >
-                      {q.myCorrect ? "O" : "X"}
+                      {q.myExcluded ? "/" : q.myCorrect ? "O" : "X"}
                     </span>
                   </td>
                   <td style={{ ...td, minWidth: 128 }}>
@@ -1032,7 +1032,7 @@ export function QuestionAnalysisTab({
     >();
     for (const t of rows) {
       for (const q of t.questions) {
-        if (t.myPct == null) continue;
+        if (t.myPct == null || q.myExcluded) continue;
         const key = q.type || "미분류";
         const cur = map.get(key) ?? { type: key, count: 0, mineCorrect: 0, classRate: [] };
         cur.count += 1;
@@ -1113,13 +1113,21 @@ export function QuestionAnalysisTab({
                 <tbody>
                   {test.questions.map((q) => {
                     // 부분문제 행은 그 문항 자체의 정오, 주 문항은 O/△/X 채점표를 쓴다.
-                    const mark = q.part
+                    const mark = q.myExcluded
+                      ? "/"
+                      : q.part
                       ? q.myCorrect
                         ? "O"
                         : "X"
                       : marks[q.no] ?? (q.myCorrect ? "O" : "X");
                     const markColor =
-                      mark === "O" ? T.ok : mark === "△" ? T.warn : mark === "-" ? T.muted : T.bad;
+                      mark === "O"
+                        ? T.ok
+                        : mark === "△"
+                        ? T.warn
+                        : mark === "-" || mark === "/"
+                        ? T.muted
+                        : T.bad;
                     return (
                       <tr key={q.label}>
                         <td style={{ ...td, textAlign: "center", width: 34 }}>
@@ -1724,7 +1732,10 @@ export function WrongNoteTab({
     const out: WrongRow[] = [];
     for (const t of tests) {
       if (t.subject !== subject || !t.hasKey || t.myPct == null) continue;
-      for (const q of t.questions) out.push({ ...q, date: t.date, files: t.files });
+      for (const q of t.questions) {
+        if (q.myExcluded) continue; // 이 학생이 안 푸는 문항은 오답 노트에 담지 않는다
+        out.push({ ...q, date: t.date, files: t.files });
+      }
     }
     return out;
   }, [tests, subject]);

@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>더브코 알파 클리닉 · 학생 학부모 이용 안내</title>
+<style>
+  @page {
+    size: A4;
+    margin: 14mm 14mm 16mm 14mm;
+    @bottom-center {
+      content: counter(page) " / " counter(pages);
+      font-family: "Noto Sans CJK KR";
+      font-size: 8.5pt;
+      color: #93A0B4;
+      padding-top: 4mm;
+    }
+  }
+  @page :first { margin: 0; @bottom-center { content: none } }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: "Noto Sans CJK KR", sans-serif;
+    color: #17233B;
+    font-size: 9.6pt;
+    line-height: 1.62;
+    -weasy-hyphens: none;
+  }
+
+  /* ============================== 표지 ============================== */
+  .cover {
+    page-break-after: always;
+    height: 297mm;
+    padding: 34mm 20mm 18mm 20mm;
+    background: #2C4A82;
+    color: #fff;
+    position: relative;
+  }
+  .cover-mark {
+    width: 20mm; height: 20mm;
+    border-radius: 6mm;
+    background: #fff;
+    color: #2C4A82;
+    font-size: 15pt; font-weight: 700;
+    text-align: center;
+    line-height: 20mm;
+    letter-spacing: -0.5pt;
+  }
+  .cover-brand { margin-top: 9mm; font-size: 11pt; letter-spacing: 3pt; color: #AFC2E4; }
+  .cover-title { margin-top: 5mm; font-size: 33pt; font-weight: 700; letter-spacing: -1.2pt; line-height: 1.24; }
+  .cover-title .accent { color: #DFA02E; }
+  .cover-sub {
+    margin-top: 8mm; font-size: 12.5pt; color: #D7E1F2; line-height: 1.75; font-weight: 300;
+  }
+  .cover-rule { width: 28mm; height: 1.4mm; background: #DFA02E; margin: 13mm 0 12mm 0; border-radius: 1mm; }
+  .cover-list { margin-top: 2mm; }
+  .cover-item { margin-bottom: 10mm; padding-left: 12mm; position: relative; }
+  .cover-item .n {
+    position: absolute; left: 0; top: 0.4mm;
+    width: 8mm; height: 8mm; border-radius: 50%;
+    border: 0.4mm solid #7E9AC9; color: #fff;
+    font-size: 9pt; font-weight: 700; text-align: center; line-height: 7.4mm;
+  }
+  .cover-item .t { font-size: 12pt; font-weight: 700; }
+  .cover-item .d { font-size: 9.6pt; color: #C3D2EA; font-weight: 300; }
+  .cover-foot {
+    position: absolute; left: 20mm; right: 20mm; bottom: 16mm;
+    padding-top: 5mm; border-top: 0.3mm solid #4A679B;
+    font-size: 9pt; color: #AFC2E4; font-weight: 300;
+  }
+  .cover-foot b { color: #fff; font-weight: 500; }
+
+  /* ============================== 공통 ============================== */
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+
+  .sec-head {
+    display: flex; flex-wrap: wrap; align-items: baseline;
+    border-bottom: 0.6mm solid #17233B; padding-bottom: 3mm; margin-bottom: 6mm;
+  }
+  .sec-num {
+    flex-shrink: 0; background: #2C4A82; color: #fff;
+    font-size: 8.5pt; font-weight: 700; letter-spacing: 0.5pt;
+    padding: 1mm 3mm; border-radius: 1.2mm;
+  }
+  .sec-title {
+    flex-shrink: 0; white-space: nowrap;
+    font-size: 17pt; font-weight: 700; letter-spacing: -0.6pt; margin-left: 3.5mm;
+  }
+  .sec-desc { width: 100%; font-size: 9.2pt; color: #586580; margin-top: 2mm; }
+
+  h3 {
+    font-size: 11.5pt; font-weight: 700; letter-spacing: -0.3pt;
+    margin: 5.5mm 0 2.6mm 0; padding-left: 2.6mm; border-left: 1mm solid #DFA02E;
+  }
+  h3:first-of-type { margin-top: 0; }
+  p { margin-bottom: 2mm; }
+  b { font-weight: 700; }
+  .muted { color: #586580; }
+  .small { font-size: 8.8pt; }
+
+  .card {
+    border: 0.3mm solid #DEE4EE; border-radius: 2.5mm;
+    padding: 4mm 4.5mm; background: #fff; margin-bottom: 3.5mm;
+  }
+  .card.soft { background: #F7F9FC; }
+  .card-t { font-size: 10.5pt; font-weight: 700; margin-bottom: 1.5mm; }
+
+  .row { display: flex; gap: 4mm; margin-bottom: 4mm; }
+  .col { flex: 1; }
+
+  /* 단계 리스트 */
+  .steps { counter-reset: step; }
+  .step { position: relative; padding-left: 10mm; margin-bottom: 3.2mm; }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    position: absolute; left: 0; top: 0.2mm;
+    width: 7mm; height: 7mm; border-radius: 50%;
+    background: #E6ECF7; color: #2C4A82;
+    font-size: 8.5pt; font-weight: 700; text-align: center; line-height: 7mm;
+  }
+  .step-t { font-weight: 700; font-size: 10pt; }
+  .step-d { color: #586580; font-size: 9.2pt; }
+
+  /* 탭 카드 */
+  .tab-card {
+    border: 0.3mm solid #DEE4EE; border-radius: 2.5mm; padding: 3.5mm 4mm;
+    margin-bottom: 3mm; background: #fff;
+  }
+  .tab-name { font-size: 10.2pt; font-weight: 700; color: #2C4A82; }
+  .tab-name .who {
+    font-size: 7.6pt; font-weight: 500; color: #586580; background: #EDF0F5;
+    border-radius: 1mm; padding: 0.6mm 1.8mm; margin-left: 2mm; vertical-align: 0.6mm;
+  }
+  .tab-name .who.student { background: #E5F4EC; color: #237952; }
+  .tab-d { font-size: 9pt; color: #586580; margin-top: 0.8mm; line-height: 1.55; }
+
+  /* 목업 */
+  .mock {
+    border: 0.3mm solid #DEE4EE; border-radius: 2.5mm; overflow: hidden;
+    background: #fff; margin-bottom: 2.5mm;
+  }
+  .mock-bar {
+    background: #F7F9FC; border-bottom: 0.3mm solid #DEE4EE;
+    padding: 2.2mm 3.5mm; font-size: 8.4pt; color: #586580; font-weight: 500;
+  }
+  .mock-body { padding: 4mm; }
+
+  .tile-row { display: flex; gap: 2.5mm; }
+  .tile {
+    flex: 1; border: 0.3mm solid #DEE4EE; border-radius: 2mm;
+    padding: 2.8mm 3mm; text-align: left;
+  }
+  .tile .lab { font-size: 7.8pt; color: #586580; }
+  .tile .val { font-size: 15pt; font-weight: 700; letter-spacing: -0.5pt; line-height: 1.25; }
+  .tile .val small { font-size: 8.5pt; font-weight: 500; margin-left: 0.6mm; }
+  .tile.mine { background: #E6ECF7; border-color: #C3D2EA; }
+  .tile.mine .val { color: #2C4A82; }
+  .tile.good .val { color: #2E9E6B; }
+
+  /* 점수 분포 (단일 색조 · 내 구간만 강조) */
+  .dist { margin-top: 3.5mm; }
+  .dist-t { font-size: 8.6pt; color: #586580; margin-bottom: 2mm; }
+  .dist-row { display: flex; align-items: center; margin-bottom: 1.4mm; }
+  .dist-lab { width: 16mm; font-size: 8.2pt; color: #586580; text-align: right; padding-right: 2.5mm; }
+  .dist-track { flex: 1; height: 4mm; background: #EDF0F5; border-radius: 1mm; }
+  .dist-fill { height: 4mm; border-radius: 1mm; background: #B7C6E0; }
+  .dist-fill.me { background: #2C4A82; }
+  .dist-val { width: 26mm; font-size: 8.2pt; color: #586580; padding-left: 2.5mm; }
+  .dist-val .me { color: #2C4A82; font-weight: 700; }
+
+  /* 표 */
+  table { width: 100%; border-collapse: collapse; font-size: 8.8pt; }
+  th {
+    background: #F7F9FC; color: #586580; font-weight: 500; font-size: 8.2pt;
+    text-align: left; padding: 1.9mm 2.5mm; border-bottom: 0.3mm solid #DEE4EE;
+  }
+  td { padding: 1.9mm 2.5mm; border-bottom: 0.25mm solid #EDF0F5; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.c, th.c { text-align: center; }
+
+  .pill {
+    display: inline-block; font-size: 8pt; font-weight: 700;
+    padding: 0.5mm 2mm; border-radius: 1mm;
+  }
+  .pill.ok { background: #E5F4EC; color: #2E9E6B; }
+  .pill.warn { background: #FAF0DE; color: #CF8A2A; }
+  .pill.bad { background: #FBE7E2; color: #D2543F; }
+  .pill.o { background: #E5F4EC; color: #2E9E6B; }
+  .pill.x { background: #FBE7E2; color: #D2543F; }
+
+  .note {
+    background: #E6ECF7; border-radius: 2mm; padding: 3.2mm 4mm;
+    font-size: 9pt; color: #17233B; margin-bottom: 2.5mm;
+  }
+  .note b { color: #2C4A82; }
+  .note.warm { background: #FAF0DE; }
+  .note.warm b { color: #A9711A; }
+
+  ul { margin: 1mm 0 2mm 4.5mm; }
+  li { margin-bottom: 0.8mm; }
+
+  .kv { display: flex; margin-bottom: 2mm; }
+  .kv .k {
+    width: 26mm; flex-shrink: 0; font-size: 9pt; font-weight: 700; color: #2C4A82;
+  }
+  .kv .v { flex: 1; font-size: 9.2pt; }
+
+  .blank {
+    display: inline-block; min-width: 55mm; border-bottom: 0.3mm dashed #93A0B4;
+  }
+
+  .faq-q {
+    font-size: 9.8pt; font-weight: 700; margin-top: 3.5mm;
+  }
+  .faq-q::before { content: "Q. "; color: #DFA02E; }
+  .faq-a { font-size: 9.2pt; color: #586580; margin-left: 4.6mm; }
+
+  .chips { margin-top: 1mm; }
+  .chip {
+    display: inline-block; font-size: 8.4pt; color: #17233B;
+    border: 0.3mm solid #DEE4EE; background: #F7F9FC;
+    border-radius: 1.4mm; padding: 1mm 2.4mm; margin: 0 1.4mm 1.4mm 0;
+  }
+  .chip.on { background: #2C4A82; color: #fff; border-color: #2C4A82; }
+
+  .end {
+    margin-top: 6mm; padding-top: 4mm; border-top: 0.3mm solid #DEE4EE;
+    font-size: 8.8pt; color: #586580; text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== 표지 ==================== -->
+<div class="cover">
+  <div class="cover-mark">DB</div>
+  <div class="cover-brand">DUBCO ALPHA CLINIC</div>
+  <div class="cover-title">더브코 알파 클리닉<br><span class="accent">학생 · 학부모</span> 이용 안내</div>
+  <div class="cover-sub">
+    수업 기록부터 테스트 성적 · 오답 노트까지,<br>
+    우리 아이의 학습을 한 화면에서 확인합니다.
+  </div>
+
+  <div class="cover-rule"></div>
+
+  <div class="cover-list">
+    <div class="cover-item">
+      <div class="n">1</div>
+      <div class="t">수업마다 남기는 기록</div>
+      <div class="d">출결과 질문을 학생이 직접 입력하고, 선생님이 과제를 확인합니다.</div>
+    </div>
+    <div class="cover-item">
+      <div class="n">2</div>
+      <div class="t">회차별 테스트 성적</div>
+      <div class="d">내 점수 · 반 평균 · 등수 · 점수 분포를 회차마다 바로 확인합니다.</div>
+    </div>
+    <div class="cover-item">
+      <div class="n">3</div>
+      <div class="t">문항 분석과 오답 노트</div>
+      <div class="d">틀린 문항을 단원별로 모아 보고, 문제와 해설을 그 자리에서 펼쳐 봅니다.</div>
+    </div>
+    <div class="cover-item">
+      <div class="n">4</div>
+      <div class="t">학부모 전용 조회</div>
+      <div class="d">자녀 계정과 별도의 비밀번호로, 기록과 성적을 언제든 열어 봅니다.</div>
+    </div>
+  </div>
+
+  <div class="cover-foot">
+    처음 사용하신다면 <b>2쪽 「시작하기」</b>부터 순서대로 따라와 주세요. &nbsp;·&nbsp; 문의는 학원으로 연락 주시기 바랍니다.
+  </div>
+</div>
+
+<!-- ==================== 1. 시작하기 ==================== -->
+<div class="page">
+  <div class="sec-head">
+    <span class="sec-num">STEP 1</span><span class="sec-title">시작하기</span>
+    <span class="sec-desc">접속 · 로그인 · 휴대폰 설치까지 3분이면 끝납니다.</span>
+  </div>
+
+  <h3>접속 주소</h3>
+  <div class="card soft">
+    <div class="kv">
+      <div class="k">사이트 주소</div>
+      <div class="v"><span class="blank">&nbsp;</span> &nbsp;<span class="muted small">← 학원에서 안내드린 주소를 입력하세요</span></div>
+    </div>
+    <div class="kv" style="margin-bottom:0">
+      <div class="k">권장 브라우저</div>
+      <div class="v">안드로이드 · PC는 <b>크롬</b>, 아이폰은 <b>사파리</b>를 사용해 주세요.</div>
+    </div>
+  </div>
+
+  <h3>로그인</h3>
+  <div class="row">
+    <div class="col">
+      <div class="mock">
+        <div class="mock-bar">로그인 화면</div>
+        <div class="mock-body">
+          <div class="chips" style="margin-bottom:2.5mm">
+            <span class="chip on">학생</span><span class="chip">학부모</span>
+          </div>
+          <div class="card" style="padding:2.6mm 3mm; margin-bottom:2mm; color:#93A0B4; font-size:9pt">아이디</div>
+          <div class="card" style="padding:2.6mm 3mm; margin-bottom:2.5mm; color:#93A0B4; font-size:9pt">비밀번호</div>
+          <div style="background:#2C4A82;color:#fff;text-align:center;border-radius:2mm;padding:2.4mm;font-size:9.4pt;font-weight:700">로그인</div>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="kv">
+        <div class="k">아이디</div>
+        <div class="v"><b>이름 + 학교</b>를 붙여서 씁니다.<br><span class="muted small">예) 홍길동 학생, 둔산여고 → <b>홍길동둔산여고</b></span></div>
+      </div>
+      <div class="kv">
+        <div class="k">첫 비밀번호</div>
+        <div class="v">학원에 등록된 <b>학부모 휴대폰 번호</b><br><span class="muted small">숫자만, 하이픈(-) 없이 11자리</span></div>
+      </div>
+      <div class="kv">
+        <div class="k">학생 / 학부모</div>
+        <div class="v">로그인 화면 위쪽 <b>탭을 먼저 고른 뒤</b> 입력합니다.</div>
+      </div>
+      <div class="kv" style="margin-bottom:0">
+        <div class="k">비밀번호 변경</div>
+        <div class="v">로그인 후 <b>마이페이지</b>에서 언제든 바꿀 수 있습니다.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>학부모 계정 안내</b> — 처음에는 <b>자녀와 같은 아이디·비밀번호</b>로 <b>학부모 탭</b>에서 로그인하시면 계정이 자동으로 만들어집니다.
+    로그인 후 마이페이지에서 학부모 전용 비밀번호로 바꾸시면, 그때부터 자녀 계정과 따로 관리됩니다.
+  </div>
+
+  <h3>휴대폰에 앱처럼 설치하기</h3>
+  <p class="muted small" style="margin-bottom:3mm">설치하면 홈 화면 아이콘으로 바로 열 수 있고, 매번 주소를 입력하지 않아도 됩니다. 로그인 화면 아래 <b>앱 설치</b> 안내에서도 같은 내용을 볼 수 있습니다.</p>
+  <div class="row">
+    <div class="col">
+      <div class="card" style="margin-bottom:0">
+        <div class="card-t">안드로이드 (크롬)</div>
+        <div class="steps">
+          <div class="step"><span class="step-d">설치 안내 화면의 <b>앱 설치하기</b> 버튼을 누릅니다.</span></div>
+          <div class="step"><span class="step-d">버튼이 보이지 않으면 브라우저 메뉴 <b>⋮</b> → <b>앱 설치</b> 또는 <b>홈 화면에 추가</b>를 누릅니다.</span></div>
+          <div class="step" style="margin-bottom:0"><span class="step-d">홈 화면에 생긴 아이콘으로 실행합니다.</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card" style="margin-bottom:0">
+        <div class="card-t">아이폰 (사파리)</div>
+        <div class="steps">
+          <div class="step"><span class="step-d">반드시 <b>사파리</b>로 사이트를 엽니다.</span></div>
+          <div class="step"><span class="step-d">화면 아래 <b>공유 버튼</b>을 누릅니다.</span></div>
+          <div class="step" style="margin-bottom:0"><span class="step-d"><b>홈 화면에 추가</b>를 선택하고 <b>추가</b>를 누릅니다.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 2. 화면 한눈에 보기 ==================== -->
+<div class="page">
+  <div class="sec-head">
+    <span class="sec-num">STEP 2</span><span class="sec-title">화면 한눈에 보기</span>
+    <span class="sec-desc">위쪽 메뉴에서 원하는 화면으로 이동합니다. 아래 표시는 누가 쓰는 메뉴인지 나타냅니다.</span>
+  </div>
+
+  <div class="row">
+    <div class="col">
+      <div class="tab-card">
+        <div class="tab-name">클리닉 입력 <span class="who student">학생만</span></div>
+        <div class="tab-d">그날 수업의 출결과 질문한 문제를 남깁니다. 수업이 끝나면 바로 입력해 주세요.</div>
+      </div>
+      <div class="tab-card">
+        <div class="tab-name">1학기 성적 입력 <span class="who student">학생만</span></div>
+        <div class="tab-d">학교 내신 성적(중간·기말·등급)을 과목별로 입력합니다. 학원에서 안내한 기간에만 열립니다.</div>
+      </div>
+      <div class="tab-card">
+        <div class="tab-name">내 이력 <span class="who">학생 · 학부모</span></div>
+        <div class="tab-d">날짜별 출결, 질문한 문제, 해결한 문제, 과제(프린트·부교재), 테스트 점수를 한 줄씩 모아 봅니다.</div>
+      </div>
+      <div class="tab-card">
+        <div class="tab-name">전체 통계 <span class="who">학생 · 학부모</span></div>
+        <div class="tab-d">과제 완료율과 테스트 평균, 점수 추이 그래프로 학습 흐름을 확인합니다.</div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="tab-card">
+        <div class="tab-name">테스트 성적 <span class="who">학생 · 학부모</span></div>
+        <div class="tab-d">회차를 골라 내 점수 · 반 평균 · 최고점 · 등수 · 점수 분포를 봅니다. 아래에는 지금까지 본 모든 회차가 표로 정리됩니다.</div>
+      </div>
+      <div class="tab-card">
+        <div class="tab-name">문항 분석 <span class="who">학생 · 학부모</span></div>
+        <div class="tab-d">문항마다 채점 결과(O·△·X), 출제 단원, 난이도, 전체 오답률을 보고 단원별 강약점을 확인합니다.</div>
+      </div>
+      <div class="tab-card">
+        <div class="tab-name">오답 노트 <span class="who">학생 · 학부모</span></div>
+        <div class="tab-d">틀린 문항만 모아 단원별로 걸러 보고, 별표(★)로 다시 볼 문항을 표시합니다. 인쇄용 PDF도 만들 수 있습니다.</div>
+      </div>
+      <div class="tab-card">
+        <div class="tab-name">마이페이지 <span class="who">학생 · 학부모</span></div>
+        <div class="tab-d">계정 정보를 확인하고 비밀번호를 변경합니다.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>학부모 화면은 조회 전용입니다.</b> 자녀의 기록과 성적은 모두 볼 수 있지만, 클리닉 입력과 성적 입력은 학생 계정에서만 가능합니다.
+  </div>
+
+  <h3>학기와 반 고르기</h3>
+  <p>화면 위쪽에서 <b>학기</b>를 고르면 그 학기의 기록만 보입니다. 지난 학기 기록도 언제든 다시 열어 볼 수 있습니다.
+     테스트 성적 · 문항 분석에서는 그 옆에서 <b>반</b>과 <b>회차(날짜)</b>까지 고릅니다.</p>
+  <div class="mock" style="margin-top:2.5mm">
+    <div class="mock-body" style="padding:3.5mm 4mm">
+      <span class="muted small">학기</span>
+      <span class="chip" style="margin-left:2mm">2026 2학기 (진행중)</span>
+      <span class="muted small" style="margin-left:3mm">회차</span>
+      <span class="chip on" style="margin-left:2mm">9/13(토) 테스트 (최근)</span>
+    </div>
+  </div>
+
+  <h3>기록은 이렇게 쌓입니다</h3>
+  <p class="small muted" style="margin-bottom:2.5mm">학생이 남긴 입력과 선생님이 채점한 결과가 <b>내 이력</b> 화면에 날짜순으로 정리됩니다.</p>
+  <div class="mock" style="margin-bottom:0">
+    <div class="mock-bar">내 이력</div>
+    <div class="mock-body" style="padding:0">
+      <table>
+        <tr><th>날짜</th><th>질문 문제</th><th>해결 문제</th><th class="c">프린트</th><th class="c">부교재</th><th class="c">테스트</th></tr>
+        <tr><td>9/12(금)</td><td>쎈 20번, 교재 45번</td><td>쎈 20번</td><td class="c"><span class="pill o">O</span></td><td class="c"><span class="pill o">O</span></td><td class="c"><b>90</b></td></tr>
+        <tr><td>9/13(토)</td><td>교재 51번</td><td>교재 51번</td><td class="c"><span class="pill o">O</span></td><td class="c"><span class="pill x">X</span></td><td class="c"><b>90</b></td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 3. 수업 때마다 할 일 ==================== -->
+<div class="page">
+  <div class="sec-head">
+    <span class="sec-num">STEP 3</span><span class="sec-title">수업 때마다 할 일 <span style="font-size:10pt;color:#2E9E6B">(학생)</span></span>
+    <span class="sec-desc">클리닉 수업이 끝나면 그날 기록을 남깁니다. 1~2분이면 충분합니다.</span>
+  </div>
+
+  <h3>클리닉 입력</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-t">날짜와 반을 고릅니다</div>
+      <div class="step-d">진행 중인 학기의 수업 날짜만 선택할 수 있습니다.</div>
+    </div>
+    <div class="step">
+      <div class="step-t">출결을 고릅니다</div>
+      <div class="step-d">
+        <span class="pill ok">출석</span> <span class="pill warn">지각</span> <span class="pill bad">결석</span>
+        &nbsp;지각은 <b>늦은 시간</b>을, 결석은 <b>사유</b>를 함께 적습니다.
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-t">질문한 문제의 출처를 고릅니다 <span class="muted small">(여러 개 선택 가능)</span></div>
+      <div class="step-d chips">
+        <span class="chip">교재</span><span class="chip">쎈</span><span class="chip">학교 프린트</span><span class="chip">과제문제 재설명(지난 회차)</span><span class="chip">개인 교재(수특 등)</span><span class="chip">없음</span>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-t">질문한 문항 번호를 적습니다</div>
+      <div class="step-d">예) <b>쎈 20번, 교재 45번</b> 처럼 교재 이름과 번호를 함께 적어 주세요.</div>
+    </div>
+    <div class="step">
+      <div class="step-t">질문 유형을 고릅니다 <span class="muted small">(여러 개 선택 가능)</span></div>
+      <div class="step-d chips">
+        <span class="chip">설명을 들었으나 재설명이 필요함</span><span class="chip">풀어보았지만 답에 도달하지 못함</span><span class="chip">접근법이 떠오르지 않아 시도하지 못함</span><span class="chip">풀었지만 다른 해법이 있는지 궁금함</span><span class="chip">개념이 부족한 것 같음</span>
+      </div>
+    </div>
+    <div class="step" style="margin-bottom:2mm">
+      <div class="step-t">요청사항을 남기고 제출합니다</div>
+      <div class="step-d">선생님께 전하고 싶은 말을 자유롭게 적은 뒤 저장하면 끝입니다.</div>
+    </div>
+  </div>
+
+  <div class="note warm">
+    <b>솔직하게 적을수록 도움이 됩니다.</b> 질문 유형과 출처는 선생님이 다음 수업을 준비하는 기준이 됩니다.
+    잘 모르겠다고 적는 것이 아무것도 적지 않는 것보다 훨씬 낫습니다.
+  </div>
+
+  <h3>1학기 성적 입력</h3>
+  <p>학교 내신 성적을 입력하는 화면입니다. 학원에서 안내한 기간에만 열립니다.</p>
+  <div class="mock">
+    <div class="mock-bar">1학기 성적 입력</div>
+    <div class="mock-body" style="padding:0">
+      <table>
+        <tr><th>학교 과목명</th><th class="c">중간고사</th><th class="c">기말고사</th><th class="c">등급</th></tr>
+        <tr><td>수학</td><td class="c">88</td><td class="c">92</td><td class="c">2</td></tr>
+        <tr><td>수학 Ⅰ</td><td class="c">95</td><td class="c">90</td><td class="c">1</td></tr>
+      </table>
+    </div>
+  </div>
+  <p class="small muted">과목은 학교에서 쓰는 이름 그대로 적고, 보지 않은 시험은 비워 둡니다.</p>
+  <p class="small muted" style="margin-top:1.5mm">과제(프린트 · 부교재) 수행 여부와 테스트 점수는 <b>선생님이 입력</b>합니다. 지난 학기 기록은 조회만 가능합니다.</p>
+
+
+</div>
+
+<!-- ==================== 4. 성적 확인하기 ==================== -->
+<div class="page">
+  <div class="sec-head">
+    <span class="sec-num">STEP 4</span><span class="sec-title">성적 확인하기</span>
+    <span class="sec-desc">테스트가 채점되면 회차별 결과와 문항별 분석이 바로 열립니다.</span>
+  </div>
+
+  <h3>테스트 성적</h3>
+  <div class="mock">
+    <div class="mock-bar">테스트 성적 · 9/13(토) 테스트</div>
+    <div class="mock-body">
+      <div class="tile-row">
+        <div class="tile mine"><div class="lab">내 점수</div><div class="val">90<small>점</small></div></div>
+        <div class="tile"><div class="lab">전체 평균</div><div class="val">78<small>점</small></div></div>
+        <div class="tile good"><div class="lab">최고점</div><div class="val">100<small>점</small></div></div>
+        <div class="tile"><div class="lab">내 등수</div><div class="val">2<small>/ 5명</small></div></div>
+      </div>
+      <div class="dist">
+        <div class="dist-t">점수 분포 (100점 환산 · 응시 5명)</div>
+        <div class="dist-row">
+          <div class="dist-lab">91~100</div>
+          <div class="dist-track"><div class="dist-fill" style="width:20%"></div></div>
+          <div class="dist-val">1명 (20%)</div>
+        </div>
+        <div class="dist-row">
+          <div class="dist-lab">71~90</div>
+          <div class="dist-track"><div class="dist-fill me" style="width:60%"></div></div>
+          <div class="dist-val"><span class="me">3명 (60%) ← 나</span></div>
+        </div>
+        <div class="dist-row">
+          <div class="dist-lab">51~70</div>
+          <div class="dist-track"><div class="dist-fill" style="width:20%"></div></div>
+          <div class="dist-val">1명 (20%)</div>
+        </div>
+        <div class="dist-row">
+          <div class="dist-lab">31~50</div>
+          <div class="dist-track"></div>
+          <div class="dist-val">0명 (0%)</div>
+        </div>
+        <div class="dist-row">
+          <div class="dist-lab">0~30</div>
+          <div class="dist-track"></div>
+          <div class="dist-val">0명 (0%)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="small muted">
+    <li>점수는 문항 수와 상관없이 <b>항상 100점 만점으로 환산</b>해 보여 주고, 화면 아래 표에서 지금까지의 모든 회차를 한눈에 볼 수 있습니다.</li>
+    <li>선생님이 문항별 답안을 등록하지 않은 회차는 <b>점수 통계만</b> 제공됩니다.</li>
+  </ul>
+
+  <h3>문항 분석</h3>
+  <div class="mock">
+    <div class="mock-bar">문항 분석 · 9/13(토) 테스트</div>
+    <div class="mock-body" style="padding:0">
+      <table>
+        <tr><th class="c">문번</th><th>출제 단원</th><th class="c">채점</th><th class="c">배점</th><th class="c">난이도</th><th class="c">전체 오답률</th></tr>
+        <tr><td class="c">1</td><td>함수의 증가와 감소</td><td class="c"><span class="pill o">O</span></td><td class="c">10</td><td class="c">하</td><td class="c">20%</td></tr>
+        <tr><td class="c">2</td><td>도함수의 활용</td><td class="c"><span class="pill x">X</span></td><td class="c">10</td><td class="c">상</td><td class="c">80%</td></tr>
+      </table>
+    </div>
+  </div>
+  <ul class="small muted" style="margin-bottom:3mm">
+    <li>문항마다 <b>문제</b> / <b>답·해설</b> 버튼을 누르면 시험지에서 그 부분만 잘라 보여 주고, 아래 <b>유형별 강약점</b>에서 내 정답률과 반 전체 정답률을 단원별로 비교합니다.</li>
+  </ul>
+
+  <h3>오답 노트</h3>
+  <div class="row" style="margin-bottom:0">
+    <div class="col">
+      <div class="card" style="margin-bottom:0">
+        <div class="card-t">이렇게 활용하세요</div>
+        <ul class="small" style="margin-bottom:0">
+          <li>틀린 문항이 <b>과목별로 자동으로 모입니다</b>.</li>
+          <li><b>단원을 골라</b> 원하는 유형만 걸러 봅니다.</li>
+          <li>다시 볼 문항에 <b>별표(★)</b>를 찍어 두고, <b>별표만</b> 보기로 복습합니다.</li>
+          <li>문항을 골라 <b>문제지 · 해설지 PDF</b>를 만들어 인쇄할 수 있습니다.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card soft" style="margin-bottom:0">
+        <div class="card-t">복습 순서 추천</div>
+        <div class="steps">
+          <div class="step"><span class="step-d">테스트 직후 <b>문항 분석</b>에서 틀린 이유를 확인</span></div>
+          <div class="step"><span class="step-d">다시 볼 문항에 <b>별표</b> 표시</span></div>
+          <div class="step"><span class="step-d">주말에 <b>별표만</b> 모아 다시 풀기</span></div>
+          <div class="step" style="margin-bottom:0"><span class="step-d">시험 전 <b>오답 PDF</b>로 출력해 최종 점검</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 5. 학부모님께 ==================== -->
+<div class="page">
+  <div class="sec-head">
+    <span class="sec-num">STEP 5</span><span class="sec-title">학부모님께</span>
+    <span class="sec-desc">자녀의 학습 기록을 확인하시는 방법과 자주 묻는 질문입니다.</span>
+  </div>
+
+  <h3>학부모 계정으로 보실 수 있는 것</h3>
+  <div class="row">
+    <div class="col">
+      <div class="card" style="margin-bottom:0">
+        <div class="card-t">수업 기록</div>
+        <div class="small muted">날짜별 출결과 지각·결석 사유, 질문한 문제와 해결한 문제, 과제(프린트·부교재) 수행 여부를 확인하실 수 있습니다.</div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card" style="margin-bottom:0">
+        <div class="card-t">성적과 분석</div>
+        <div class="small muted">회차별 점수와 반 평균·등수, 점수 추이, 단원별 강약점, 틀린 문항과 해설까지 학생과 같은 내용을 보실 수 있습니다.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:4mm">
+    <b>비밀번호는 따로 관리하실 수 있습니다.</b> 처음에는 자녀와 같은 비밀번호로 시작하지만,
+    <b>마이페이지</b>에서 한 번 변경하시면 그때부터 자녀 계정과 완전히 분리됩니다.
+  </div>
+
+  <h3>주간 안내 문자</h3>
+  <p>학원에서 보내 드리는 안내 문자에는 그 주 <b>성적 링크</b>가 함께 담길 수 있습니다.</p>
+  <ul>
+    <li>링크를 누르면 <b>로그인 없이</b> 해당 회차의 성적 화면이 바로 열립니다.</li>
+    <li>링크 하나는 <b>그 학생 · 그 반 · 그 날짜</b> 하나만 열 수 있습니다.</li>
+    <li>보안을 위해 <b>일정 기간이 지나면 링크는 자동으로 만료</b>됩니다. 지난 기록은 로그인해서 확인해 주세요.</li>
+  </ul>
+
+  <h3>자주 묻는 질문</h3>
+
+  <div class="faq-q">비밀번호를 잊어버렸습니다.</div>
+  <div class="faq-a">학원으로 연락 주시면 초기화해 드립니다. 초기 비밀번호는 등록된 학부모 휴대폰 번호(숫자 11자리)입니다.</div>
+
+  <div class="faq-q">테스트를 봤는데 점수가 보이지 않습니다.</div>
+  <div class="faq-a">채점과 등록이 끝나야 화면에 나타납니다. 선생님이 아직 공개하지 않은 회차일 수도 있으니 하루 이틀 뒤에 다시 확인해 주세요.</div>
+
+  <div class="faq-q">문항별 분석이 보이지 않는 회차가 있습니다.</div>
+  <div class="faq-a">선생님이 문항별 답안을 등록한 회차에만 제공됩니다. 그 외 회차는 점수 · 평균 · 등수 등 점수 통계만 보입니다.</div>
+
+  <div class="faq-q">시험지나 해설지를 받아 볼 수 있나요?</div>
+  <div class="faq-a">자료가 올라온 회차는 테스트 성적 표의 <b>시험지 · 답지</b> 칸에서 내려받을 수 있습니다. 오답 노트에서는 틀린 문항만 모아 인쇄용 PDF로 만들 수도 있습니다.</div>
+
+  <div class="faq-q">휴대폰과 PC에서 함께 써도 되나요?</div>
+  <div class="faq-a">네. 같은 계정으로 기기 제한 없이 로그인하실 수 있습니다. 공용 PC에서는 사용 후 반드시 로그아웃해 주세요.</div>
+
+  <div class="faq-q">자녀가 클리닉 입력을 깜빡했습니다.</div>
+  <div class="faq-a">진행 중인 학기의 수업 날짜라면 나중에라도 입력할 수 있습니다. 다만 기억이 선명할 때 적는 것이 가장 정확합니다.</div>
+
+  <div class="end">
+    더브코 알파 클리닉 · 학생 학부모 이용 안내<br>
+    <span style="color:#93A0B4">그 밖에 궁금하신 점은 언제든 학원으로 문의해 주시기 바랍니다.</span>
+  </div>
+</div>
+
+</body>
+</html>

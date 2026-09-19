@@ -10,6 +10,7 @@ import {
   saveQuestions,
   serializeTestPaper,
   toAnswerMap,
+  toExcludedList,
 } from "@/lib/testpaper";
 import { listTestFiles } from "@/lib/files";
 
@@ -76,7 +77,8 @@ export async function GET(req: Request) {
       if (!stu) return null;
       const doc = sessionByStudent[String(e.student)];
       const answers = toAnswerMap(doc?.testAnswers);
-      const graded = gradeAnswers(paper.questions, answers);
+      const excluded = toExcludedList(doc?.testExcluded);
+      const graded = gradeAnswers(paper.questions, answers, excluded);
       return {
         studentId: String(stu._id),
         name: stu.name as string,
@@ -85,6 +87,7 @@ export async function GET(req: Request) {
         attendance: doc ? (doc.attendance as string) : "",
         attended: !!doc && (doc.submitted || doc.attnAdmin),
         answers,
+        excluded,
         score: Object.keys(answers).length ? graded.score : null,
         pct: Object.keys(answers).length ? graded.pct : null,
         manualScore: (doc?.testScore ?? null) as number | null,

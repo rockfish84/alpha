@@ -6,6 +6,7 @@ import { T } from "@/lib/constants";
 import { api } from "@/lib/api";
 import { FILE_KIND_LABEL, type FileMeta } from "@/lib/analysis-types";
 import {
+  autoExcludeBlocks,
   autoSelectStarts,
   blockId,
   buildRegions,
@@ -45,6 +46,8 @@ export function RegionMarker({
 }) {
   const [pages, setPages] = useState<DetectedPage[]>([]);
   const [starts, setStarts] = useState<Set<BlockId>>(new Set());
+  // 문항이 아닌 블록 (머리말·로고 등). 어느 문항에도 담기지 않는다.
+  const [excluded, setExcluded] = useState<Set<BlockId>>(new Set());
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
@@ -67,7 +70,9 @@ export function RegionMarker({
         });
         if (cancelled) return;
         setPages(detected);
-        setStarts(autoSelectStarts(detected, expected));
+        const skip = autoExcludeBlocks(detected);
+        setExcluded(skip);
+        setStarts(autoSelectStarts(detected, expected, skip));
       } catch (e: any) {
         if (!cancelled) setErr(e?.message || "문항 위치를 분석하지 못했습니다.");
       } finally {
@@ -81,15 +86,35 @@ export function RegionMarker({
 
   // 실제로 저장될 영역 (문항 시작 ~ 다음 문항 시작 직전)
   const groupRects = useMemo(
-    () => regionRectsFor(pages, starts),
-    [pages, starts]
+    () => regionRectsFor(pages, starts, excluded),
+    [pages, starts, excluded]
   );
 
-  const toggle = useCallback((id: BlockId) => {
-    setStarts((prev) => {
+  const toggle = useCallback(
+    (id: BlockId) => {
+      if (excluded.has(id)) return; // 지운 블록은 × 로만 되살린다
+      setStarts((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    },
+    [excluded]
+  );
+
+  /** 블록 삭제 / 되돌리기. 삭제한 블록은 어느 문항에도 들어가지 않는다. */
+  const toggleExcluded = useCallback((id: BlockId) => {
+    setExcluded((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      return next;
+    });
+    setStarts((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
       return next;
     });
   }, []);
@@ -103,7 +128,8 @@ export function RegionMarker({
         starts,
         questionNos,
         regionKindOf(file.kind),
-        file.id
+        file.id,
+        excluded
       );
       await api.put("/api/admin/regions", {
         term: termId,
@@ -153,9 +179,11 @@ export function RegionMarker({
       }
     >
       <div style={{ fontSize: 13, color: T.sub, lineHeight: 1.65, marginBottom: 12 }}>
-색칠된 영역이 <b>그 문항으로 저장될 범위</b>입니다. 문항이 시작하는 곳(굵은 테두리)이
-        잘못 잡혔으면 블록을 눌러서 켜고 끄면 번호와 범위가 다시 계산됩니다. (해설이 다음
-        단·다음 장으로 이어지는 부분은 <b>끄면</b> 앞 문항에 이어 붙습니다)
+색칠된 영역이 <b>그 문항으로 저장될 범위</b>입니다. 문항 번호가 있는 줄을 문항 시작으로
+        잡고, 머리말(제목·학원 로고·날짜 칸)은 자동으로 빼 둡니다. 잘못 잡혔으면 블록을 눌러
+        시작을 켜고 끄면 번호와 범위가 다시 계산됩니다. 문항이 아예 아닌 블록은 오른쪽 위
+        <b>×</b> 를 눌러 <b>삭제</b>하세요 (삭제한 블록은 어느 문항에도 들어가지 않습니다).
+        해설이 다음 단·다음 장으로 이어지는 부분은 <b>시작을 끄면</b> 앞 문항에 이어 붙습니다.
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
@@ -163,12 +191,25 @@ export function RegionMarker({
           variant="outline"
           size="sm"
           disabled={loading || !pages.length}
-          onClick={() => setStarts(autoSelectStarts(pages, expected))}
+          onClick={() => {
+            const skip = autoExcludeBlocks(pages);
+            setExcluded(skip);
+            setStarts(autoSelectStarts(pages, expected, skip));
+          }}
         >
           <Wand2 size={14} /> 자동 선택 다시
         </Btn>
         <Btn variant="outline" size="sm" disabled={loading} onClick={() => setStarts(new Set())}>
           전체 해제
+        </Btn>
+        <Btn
+          variant="outline"
+          size="sm"
+          disabled={loading || !excluded.size}
+          onClick={() => setExcluded(new Set())}
+          title="삭제한 블록을 모두 되살립니다"
+        >
+          삭제 {excluded.size}개 되돌리기
         </Btn>
         <div style={{ flex: 1 }} />
         <Btn onClick={save} disabled={saving || loading || !pages.length}>
@@ -246,26 +287,64 @@ export function RegionMarker({
                 col.blocks.map((b, i) => {
                   const id = blockId(p.page, ci, i);
                   const on = starts.has(id);
+                  const off = excluded.has(id);
+                  const left = (b.left / p.width) * 100;
+                  const top = (b.top / p.height) * 100;
+                  const w = ((b.right - b.left) / p.width) * 100;
+                  const h = ((b.bottom - b.top) / p.height) * 100;
                   return (
-                    <button
-                      key={id}
-                      onClick={() => toggle(id)}
-                      title={on ? "이 문항 시작 해제" : "여기서 새 문항 시작"}
-                      style={{
-                        position: "absolute",
-                        left: `${(b.left / p.width) * 100}%`,
-                        top: `${(b.top / p.height) * 100}%`,
-                        width: `${((b.right - b.left) / p.width) * 100}%`,
-                        height: `${((b.bottom - b.top) / p.height) * 100}%`,
-                        border: on
-                          ? `2px solid ${T.primary}`
-                          : `1px dashed rgba(120,135,160,.5)`,
-                        borderRadius: 4,
-                        background: "transparent",
-                        cursor: "pointer",
-                        padding: 0,
-                      }}
-                    />
+                    <React.Fragment key={id}>
+                      <button
+                        onClick={() => toggle(id)}
+                        disabled={off}
+                        title={
+                          off
+                            ? "삭제한 블록 (× 를 눌러 되돌리기)"
+                            : on
+                            ? "이 문항 시작 해제"
+                            : "여기서 새 문항 시작"
+                        }
+                        style={{
+                          position: "absolute",
+                          left: `${left}%`,
+                          top: `${top}%`,
+                          width: `${w}%`,
+                          height: `${h}%`,
+                          border: off
+                            ? `1px solid rgba(210,84,63,.5)`
+                            : on
+                            ? `2px solid ${T.primary}`
+                            : `1px dashed rgba(120,135,160,.5)`,
+                          borderRadius: 4,
+                          background: off ? "rgba(120,135,160,.30)" : "transparent",
+                          cursor: off ? "default" : "pointer",
+                          padding: 0,
+                        }}
+                      />
+                      <button
+                        onClick={() => toggleExcluded(id)}
+                        title={off ? "이 블록 되살리기" : "이 블록 삭제 (문항에서 제외)"}
+                        style={{
+                          position: "absolute",
+                          left: `calc(${left + w}% - 9px)`,
+                          top: `calc(${top}% - 9px)`,
+                          width: 18,
+                          height: 18,
+                          borderRadius: 999,
+                          border: `1px solid ${off ? T.ok : T.bad}`,
+                          background: "#fff",
+                          color: off ? T.ok : T.bad,
+                          fontSize: 11,
+                          fontWeight: 900,
+                          lineHeight: 1,
+                          cursor: "pointer",
+                          padding: 0,
+                          zIndex: 3,
+                        }}
+                      >
+                        {off ? "↺" : "×"}
+                      </button>
+                    </React.Fragment>
                   );
                 })
               )}

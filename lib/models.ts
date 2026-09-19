@@ -108,6 +108,8 @@ const SessionSchema = new Schema(
     testDetail: { type: String, default: "" },
     // 성적 입력 탭에서 받은 학생 답안 { "8-(1)": "3", ... }. 자동 채점의 원본.
     testAnswers: { type: Map, of: String, default: undefined },
+    // 이 학생만 안 푸는 문항 ("4", "8-(1)"). 미제출과 달리 만점에서 빠진다.
+    testExcluded: { type: [String], default: undefined },
     testAuto: { type: Boolean, default: false }, // testScore 가 자동 채점 결과인지
     // testScore 가 100점 환산 값인지 (옛 "맞은 개수" 점수와 구분)
     testScale100: { type: Boolean, default: false },
