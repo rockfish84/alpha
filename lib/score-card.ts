@@ -493,6 +493,8 @@ export function drawTrendCard(data: TrendCardData, opts?: CardOutput): string {
 
 const DETAIL_W = 1500;
 const DETAIL_MAX_H = 1440;
+/** 이보다 문항이 많으면 표를 좌우 두 쪽으로 나눈다 */
+const DETAIL_SPLIT_AT = 13;
 
 export interface DetailShare {
   choice: string;
@@ -553,10 +555,16 @@ export function drawTestDetailCard(d: DetailCardData, opts?: CardOutput): string
   const tableHeadH = 54;
   const footerH = 46;
   const avail = DETAIL_MAX_H - headerH - topH - tableHeadH - footerH - 26;
-  const rowH = rows ? Math.max(46, Math.min(96, Math.floor(avail / rows))) : 0;
+  // MMS 이미지는 세로 1440px 을 넘길 수 없다. 문항이 많으면 표를 좌우 두 쪽으로 나눠
+  // 담아야 끝까지 보인다. (한 줄 높이를 더 줄이면 문자에서 글씨가 안 읽힌다)
+  const split = rows > DETAIL_SPLIT_AT;
+  const perTable = split ? Math.ceil(rows / 2) : rows;
+  const rowH = perTable
+    ? Math.max(46, Math.min(96, Math.floor(avail / perTable)))
+    : 0;
   const height = Math.min(
     DETAIL_MAX_H,
-    headerH + topH + (rows ? tableHeadH + rows * rowH + 18 : 0) + footerH
+    headerH + topH + (rows ? tableHeadH + perTable * rowH + 18 : 0) + footerH
   );
 
   const canvas = document.createElement("canvas");
@@ -707,17 +715,31 @@ export function drawTestDetailCard(d: DetailCardData, opts?: CardOutput): string
      (답안 분포 등 세부 내용은 사이트에서 본다) */
   if (rows) {
     const tableY = topY + topH - 10;
-    const cols = [
-      { label: "문번", w: 112 },
-      { label: "유형", w: 368 },
-      { label: "배점", w: 96 },
-      { label: "정답", w: 224 },
-      { label: "나의 답안", w: 224 },
-      { label: "정오", w: 96 },
-      { label: "전체 정답률", w: 244 },
-    ];
+    // 나눠 담을 때는 열을 줄인다 (배점·전체 정답률은 사이트에서 본다)
+    const cols = split
+      ? [
+          { label: "문번", w: 84 },
+          { label: "유형", w: 196 },
+          { label: "정답", w: 152 },
+          { label: "나의 답안", w: 152 },
+          { label: "정오", w: 76 },
+        ]
+      : [
+          { label: "문번", w: 112 },
+          { label: "유형", w: 368 },
+          { label: "배점", w: 96 },
+          { label: "정답", w: 224 },
+          { label: "나의 답안", w: 224 },
+          { label: "정오", w: 96 },
+          { label: "전체 정답률", w: 244 },
+        ];
     const tableW = cols.reduce((a, c) => a + c.w, 0);
-    const startX = pad + Math.max(0, (DETAIL_W - pad * 2 - tableW) / 2);
+    const blocks = split
+      ? [d.questions.slice(0, perTable), d.questions.slice(perTable)]
+      : [d.questions];
+    const blockGap = 36;
+    const totalW = blocks.length * tableW + (blocks.length - 1) * blockGap;
+    const startX = pad + Math.max(0, (DETAIL_W - pad * 2 - totalW) / 2);
 
     ctx.fillStyle = "#FFFFFF";
     roundRect(ctx, pad, tableY, DETAIL_W - pad * 2, height - tableY - footerH + 10, 18);
@@ -729,87 +751,107 @@ export function drawTestDetailCard(d: DetailCardData, opts?: CardOutput): string
     roundRect(ctx, pad + 1, tableY + 1, DETAIL_W - pad * 2 - 2, tableHeadH, 16);
     ctx.fill();
 
-    ctx.font = `bold 24px ${FONT}`;
-    ctx.fillStyle = T.sub;
-    ctx.textAlign = "center";
-    let x = startX;
-    for (const c of cols) {
-      ctx.fillText(c.label, x + c.w / 2, tableY + 36);
-      x += c.w;
-    }
-
     const fs = Math.max(22, Math.min(30, Math.round(rowH * 0.36)));
-    d.questions.forEach((q, i) => {
-      const y = tableY + tableHeadH + i * rowH;
-      if (i > 0) {
-        ctx.strokeStyle = "#E7ECF3";
-        ctx.beginPath();
-        ctx.moveTo(pad + 14, y);
-        ctx.lineTo(DETAIL_W - pad - 14, y);
-        ctx.stroke();
-      }
-      const mid = y + rowH / 2;
-      const base = mid + fs / 3;
-      let cx = startX;
-      const cell = (w: number, fn: (cxx: number) => void) => {
-        fn(cx);
-        cx += w;
-      };
 
+    /** 칸 하나 그리기 (열 이름으로 무엇을 그릴지 정한다) */
+    const drawCell = (
+      label: string,
+      w: number,
+      x: number,
+      q: DetailQuestion,
+      mid: number,
+      base: number
+    ) => {
+      switch (label) {
+        case "문번":
+          ctx.fillStyle = T.ink;
+          ctx.font = `bold ${fs + 2}px ${FONT}`;
+          ctx.fillText(q.label, x + w / 2, base);
+          break;
+        case "유형":
+          ctx.fillStyle = q.type ? T.ink : T.muted;
+          ctx.font = `${fs}px ${FONT}`;
+          ctx.textAlign = "left";
+          ctx.fillText(cut(ctx, q.type || "—", w - 20), x + 10, base);
+          ctx.textAlign = "center";
+          break;
+        case "배점":
+          ctx.fillStyle = T.sub;
+          ctx.font = `${fs}px ${FONT}`;
+          ctx.fillText(String(q.points), x + w / 2, base);
+          break;
+        case "정답":
+          ctx.fillStyle = T.ok;
+          ctx.font = `bold ${fs}px ${FONT}`;
+          ctx.fillText(cut(ctx, q.answer || "—", w - 16), x + w / 2, base);
+          break;
+        case "나의 답안":
+          ctx.fillStyle = q.myAnswered ? (q.myCorrect ? T.ink : T.bad) : T.muted;
+          ctx.font = `bold ${fs}px ${FONT}`;
+          ctx.fillText(
+            cut(ctx, q.myAnswered ? q.myAnswer : "미제출", w - 16),
+            x + w / 2,
+            base
+          );
+          break;
+        case "정오":
+          ctx.fillStyle = q.myCorrect ? T.ok : T.bad;
+          ctx.font = `bold ${fs + 6}px ${FONT}`;
+          ctx.fillText(q.myCorrect ? "O" : "X", x + w / 2, base);
+          break;
+        case "전체 정답률": {
+          const bw = w - 110;
+          const by = mid - 7;
+          ctx.fillStyle = T.badSoft;
+          roundRect(ctx, x + 12, by, bw, 14, 7);
+          ctx.fill();
+          ctx.fillStyle =
+            q.correctRate >= 70 ? T.ok : q.correctRate >= 40 ? T.warn : T.bad;
+          roundRect(ctx, x + 12, by, Math.max(4, (bw * q.correctRate) / 100), 14, 7);
+          ctx.fill();
+          ctx.fillStyle = T.sub;
+          ctx.font = `bold ${fs}px ${FONT}`;
+          ctx.textAlign = "right";
+          ctx.fillText(`${q.correctRate}%`, x + w - 10, base);
+          ctx.textAlign = "center";
+          break;
+        }
+      }
+    };
+
+    blocks.forEach((list, bi) => {
+      const bx = startX + bi * (tableW + blockGap);
+
+      // 열 이름
+      ctx.font = `bold 24px ${FONT}`;
+      ctx.fillStyle = T.sub;
       ctx.textAlign = "center";
-      cell(cols[0].w, (c) => {
-        ctx.fillStyle = T.ink;
-        ctx.font = `bold ${fs + 2}px ${FONT}`;
-        ctx.fillText(q.label, c + cols[0].w / 2, base);
-      });
-      cell(cols[1].w, (c) => {
-        ctx.fillStyle = q.type ? T.ink : T.muted;
-        ctx.font = `${fs}px ${FONT}`;
-        ctx.textAlign = "left";
-        ctx.fillText(cut(ctx, q.type || "—", cols[1].w - 20), c + 10, base);
+      let hx = bx;
+      for (const c of cols) {
+        ctx.fillText(c.label, hx + c.w / 2, tableY + 36);
+        hx += c.w;
+      }
+
+      list.forEach((q, i) => {
+        const y = tableY + tableHeadH + i * rowH;
+        if (i > 0) {
+          ctx.strokeStyle = "#E7ECF3";
+          ctx.beginPath();
+          ctx.moveTo(bx, y);
+          ctx.lineTo(bx + tableW, y);
+          ctx.stroke();
+        }
+        const mid = y + rowH / 2;
+        const base = mid + fs / 3;
+        let cx = bx;
         ctx.textAlign = "center";
-      });
-      cell(cols[2].w, (c) => {
-        ctx.fillStyle = T.sub;
-        ctx.font = `${fs}px ${FONT}`;
-        ctx.fillText(String(q.points), c + cols[2].w / 2, base);
-      });
-      cell(cols[3].w, (c) => {
-        ctx.fillStyle = T.ok;
-        ctx.font = `bold ${fs}px ${FONT}`;
-        ctx.fillText(cut(ctx, q.answer || "—", cols[3].w - 16), c + cols[3].w / 2, base);
-      });
-      cell(cols[4].w, (c) => {
-        ctx.fillStyle = q.myAnswered ? (q.myCorrect ? T.ink : T.bad) : T.muted;
-        ctx.font = `bold ${fs}px ${FONT}`;
-        ctx.fillText(
-          cut(ctx, q.myAnswered ? q.myAnswer : "미제출", cols[4].w - 16),
-          c + cols[4].w / 2,
-          base
-        );
-      });
-      cell(cols[5].w, (c) => {
-        ctx.fillStyle = q.myCorrect ? T.ok : T.bad;
-        ctx.font = `bold ${fs + 6}px ${FONT}`;
-        ctx.fillText(q.myCorrect ? "O" : "X", c + cols[5].w / 2, base);
-      });
-      cell(cols[6].w, (c) => {
-        const bw = cols[6].w - 110;
-        const by = mid - 7;
-        ctx.fillStyle = T.badSoft;
-        roundRect(ctx, c + 12, by, bw, 14, 7);
-        ctx.fill();
-        ctx.fillStyle =
-          q.correctRate >= 70 ? T.ok : q.correctRate >= 40 ? T.warn : T.bad;
-        roundRect(ctx, c + 12, by, Math.max(4, (bw * q.correctRate) / 100), 14, 7);
-        ctx.fill();
-        ctx.fillStyle = T.sub;
-        ctx.font = `bold ${fs}px ${FONT}`;
-        ctx.textAlign = "right";
-        ctx.fillText(`${q.correctRate}%`, c + cols[6].w - 10, base);
-        ctx.textAlign = "center";
+        for (const c of cols) {
+          drawCell(c.label, c.w, cx, q, mid, base);
+          cx += c.w;
+        }
       });
     });
+
   } else {
     ctx.textAlign = "center";
     ctx.fillStyle = T.sub;
