@@ -1,5 +1,6 @@
 // 오답 노트에서 고른 문항만 모아 A4 PDF 로 만든다.
-// 시험지처럼 2단으로 채우고, 잘린 이미지가 없도록 칸에 맞춰 넣는다.
+// 시험지처럼 2단으로 채우되, 빈 곳이 크게 남지 않도록 단을 끝까지 채운다.
+// (문제지는 남는 자리를 문항 아래 "풀 공간"으로 나눠 준다)
 import type { RegionRect } from "./analysis-types";
 
 export interface PdfItem {
@@ -25,6 +26,12 @@ const GUTTER = 6;
 const HEADER_H = 12;
 const LABEL_H = 5.2;
 const ITEM_GAP = 5;
+/** 남은 자리가 자연 높이의 이만큼은 돼야 줄여서 그 단에 넣는다 (너무 작게 줄이지 않도록) */
+const MIN_FIT = 0.62;
+/** 해설지에서 문항 사이에 둘 최대 여백 (mm) */
+const MAX_SPREAD = 18;
+/** 문제지에서 문항 아래에 남길 최소 풀 공간 (mm) */
+const MIN_WORK_SPACE = 10;
 
 const COL_W = (PAGE_W - MARGIN * 2 - GUTTER) / 2;
 const CONTENT_TOP = MARGIN + HEADER_H;
@@ -60,6 +67,86 @@ function textImage(
   const x = opts.align === "right" ? canvas.width - pad : pad;
   ctx.fillText(text, x, height / 2, canvas.width - pad * 2);
   return { dataUrl: canvas.toDataURL("image/jpeg", 0.85), width: canvas.width, height };
+}
+
+/** 한 단에 담긴 문항 하나 (그릴 높이와 축소 비율) */
+export interface PackedItem {
+  index: number;
+  height: number;
+  /** 1 이면 원래 크기, 1 미만이면 줄여서 넣는다 */
+  shrink: number;
+}
+
+/**
+ * 문항들을 순서대로 단(column)에 담는다. (순수 계산 — 브라우저가 필요 없다)
+ *
+ * 남은 자리에 그대로 들어가면 담고, 조금 모자라면 줄여서 그 단을 끝까지 채운다.
+ * 문제지는 문항마다 풀 공간(workSpace)을 미리 확보해 둔다.
+ */
+export function packColumns(
+  heights: number[],
+  opts: { contentH?: number; workSpace?: number; shrinkToFit?: boolean } = {}
+): PackedItem[][] {
+  const contentH = opts.contentH ?? CONTENT_H;
+  const workSpace = opts.workSpace ?? 0;
+  // 해설지는 남는 자리를 없애려고 조금 줄여서라도 채운다.
+  // 문제지는 줄이지 않는다 — 남는 자리가 곧 풀 공간이라 버리는 공간이 아니다.
+  const shrinkToFit = opts.shrinkToFit ?? true;
+  const columns: PackedItem[][] = [];
+  let cur: PackedItem[] = [];
+  let used = 0;
+
+  const flush = () => {
+    if (cur.length) columns.push(cur);
+    cur = [];
+    used = 0;
+  };
+
+  heights.forEach((natural, index) => {
+    const gap = cur.length ? ITEM_GAP : 0;
+    const room = contentH - used - gap;
+
+    if (natural + workSpace <= room) {
+      cur.push({ index, height: natural, shrink: 1 });
+      used += gap + natural + workSpace;
+      return;
+    }
+    // 남은 자리가 제법 되면 조금 줄여서 이 단을 끝까지 채운다
+    if (shrinkToFit && room >= natural * MIN_FIT && room > LABEL_H + 12) {
+      cur.push({
+        index,
+        height: room,
+        shrink: (room - LABEL_H) / (natural - LABEL_H),
+      });
+      flush();
+      return;
+    }
+    flush();
+    // 새 단에서도 넘치면 한 단 크기에 맞춰 줄인다
+    const height = Math.min(natural, contentH);
+    cur.push({
+      index,
+      height,
+      shrink: natural > contentH ? (contentH - LABEL_H) / (natural - LABEL_H) : 1,
+    });
+    used = height + workSpace;
+  });
+  flush();
+  return columns;
+}
+
+/** 한 단에서 문항마다 나눠 가질 여유 공간 (mm) */
+export function spacingFor(
+  items: { height: number }[],
+  wantQuestion: boolean,
+  contentH: number = CONTENT_H
+): number {
+  if (!items.length) return 0;
+  const content = items.reduce((a, p) => a + p.height, 0);
+  const leftover = Math.max(0, contentH - content - (items.length - 1) * ITEM_GAP);
+  const share = leftover / items.length;
+  // 문제지는 남는 자리를 전부 풀 공간으로, 해설지는 너무 벌어지지 않게 제한한다.
+  return wantQuestion ? share : Math.min(share, MAX_SPREAD);
 }
 
 /** 이미지 폭을 칸 너비에 맞췄을 때의 높이(mm) */
@@ -101,11 +188,6 @@ export async function buildWrongNotePdf(
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const kindLabel = wantQuestion ? "문제" : "해설";
   let page = 1;
-  let col = 0;
-  let y = CONTENT_TOP;
-  /** 문제지에서 한 단을 위·아래 두 칸으로 나눠 쓴다 (아래 여백 = 푸는 공간) */
-  let slot = 0;
-  const SLOT_H = CONTENT_H / 2;
 
   const drawHeader = () => {
     const title = textImage(
@@ -128,62 +210,23 @@ export async function buildWrongNotePdf(
     doc.line(MARGIN, MARGIN + 7.5, PAGE_W - MARGIN, MARGIN + 7.5);
   };
 
-  drawHeader();
+  /* ── 1단계: 문항을 단(column)에 순서대로 담는다.
+     (예전에는 한 단을 위·아래 두 칸으로 나눠 써서 짧은 문항 뒤에 빈 곳이 크게 남았다) */
+  const packed = packColumns(blocks.map(blockHeight), {
+    workSpace: wantQuestion ? MIN_WORK_SPACE : 0,
+    shrinkToFit: !wantQuestion,
+  });
 
-  const nextColumn = () => {
-    if (col === 0) {
-      col = 1;
-    } else {
-      doc.addPage();
-      page += 1;
-      col = 0;
-      drawHeader();
-    }
-    y = CONTENT_TOP;
-    slot = 0;
-  };
-
-  /** 한 블록을 그린다. 문제지는 칸(위/아래)에 맞춰, 해설지는 이어서 채운다. */
-  const place = (block: Block) => {
-    const natural = blockHeight(block);
-
-    if (wantQuestion) {
-      // 반 칸에 들어가면 반 칸, 아니면 한 단 전체를 쓴다
-      const fitsHalf = natural <= SLOT_H - ITEM_GAP;
-      const need = fitsHalf ? SLOT_H : CONTENT_H;
-      if (!fitsHalf && slot !== 0) nextColumn();
-      if (y + need > CONTENT_TOP + CONTENT_H + 0.5) nextColumn();
-
-      const shrink =
-        natural > need - ITEM_GAP
-          ? (need - ITEM_GAP - LABEL_H) / (natural - LABEL_H)
-          : 1;
-      draw(block, y, shrink);
-      if (fitsHalf) {
-        slot += 1;
-        y = CONTENT_TOP + slot * SLOT_H;
-        if (slot >= 2) nextColumn();
-      } else {
-        nextColumn();
-      }
-      return;
-    }
-
-    // 해설지: 빈칸 없이 이어서
-    let h = natural;
-    let shrink = 1;
-    if (h > CONTENT_H) {
-      shrink = (CONTENT_H - LABEL_H) / (h - LABEL_H);
-      h = CONTENT_H;
-    }
-    if (y + h > CONTENT_TOP + CONTENT_H) nextColumn();
-    draw(block, y, shrink);
-    y += h + ITEM_GAP;
-  };
-
-  function draw(block: Block, top: number, shrink: number) {
+  /* ── 2단계: 단마다 남는 자리를 나눠 준다.
+     문제지는 문항 아래 풀 공간으로, 해설지는 문항 사이 간격으로 (너무 벌어지지 않게 제한). */
+  const draw = (placed: PackedItem, col: number, top: number) => {
+    const block = blocks[placed.index];
     const x = MARGIN + col * (COL_W + GUTTER);
-    const label = textImage(block.label, 900, { size: 22, color: "#2C4A82", bold: true });
+    const label = textImage(block.label, 900, {
+      size: 22,
+      color: "#2C4A82",
+      bold: true,
+    });
     doc.addImage(
       label.dataUrl,
       "JPEG",
@@ -194,14 +237,31 @@ export async function buildWrongNotePdf(
     );
     let imgY = top + LABEL_H;
     for (const im of block.images) {
-      const w = COL_W * shrink;
+      const w = COL_W * placed.shrink;
       const hh = (w * im.height) / im.width;
       doc.addImage(im.dataUrl, "JPEG", x, imgY, w, hh, undefined, "FAST");
       imgY += hh;
     }
-  }
+  };
 
-  for (const b of blocks) place(b);
+  drawHeader();
+  packed.forEach((items, index) => {
+    const col = index % 2;
+    if (index > 0 && col === 0) {
+      doc.addPage();
+      page += 1;
+      drawHeader();
+    }
+
+    const extra = spacingFor(items, wantQuestion);
+
+    let y = CONTENT_TOP;
+    items.forEach((p, i) => {
+      draw(p, col, y);
+      y += p.height + extra;
+      if (i < items.length - 1) y += ITEM_GAP;
+    });
+  });
 
   const name = `오답${kindLabel}_${opts.subject}_${opts.studentName}.pdf`;
   doc.save(name);
