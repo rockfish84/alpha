@@ -3,7 +3,7 @@
  *
  * - 대상: 진행 중인 학기에 재원인 학생 (원하면 --exclude 로 특정 반 제외)
  * - 아이디: user001 부터 이름 가나다순
- * - 비밀번호: 숫자 10자리 무작위 (DB 에는 해시만 저장 → 이 스크립트가 만드는
+ * - 비밀번호: 숫자 4자리 무작위 (DB 에는 해시만 저장 → 이 스크립트가 만드는
  *   CSV 가 비밀번호를 볼 수 있는 유일한 기회다)
  * - 이미 있는 학부모 계정도 새 아이디·비밀번호로 덮어쓴다.
  *
@@ -128,9 +128,11 @@ async function main() {
     return;
   }
 
-  // 아이디가 겹치지 않도록 대상 학생의 기존 계정을 먼저 비운다.
-  // (--fill 은 계정이 없는 학생만 골라 왔으므로 지울 게 거의 없다)
+  // 아이디가 겹치지 않도록 기존 계정을 먼저 비운다.
+  // 전체 재발급이면 user### 계정을 모두 지운다 — 대상 학생 것만 지우면, 이미 퇴원해
+  // 대상에서 빠진 학생의 계정과 아이디가 부딪혀 중간에 멈춘다.
   const studentIds = students.map((s) => s._id);
+  if (!FILL) await Parent.deleteMany({ username: /^user\d+$/ });
   await Parent.deleteMany({ student: { $in: studentIds } });
 
   for (const [i, stu] of students.entries()) {

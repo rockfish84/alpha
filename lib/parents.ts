@@ -1,7 +1,7 @@
 // 학부모 계정 helper.
 //
 // 학부모 계정은 학생 계정과 완전히 별개다. 아이디는 학원이 user001 · user002 … 로
-// 발급하고, 비밀번호는 숫자 10자리를 무작위로 만든다. 로그인 검증은 bcrypt 해시로 하고,
+// 발급하고, 비밀번호는 숫자 4자리를 무작위로 만든다. 로그인 검증은 bcrypt 해시로 하고,
 // 학원이 다시 확인할 수 있도록 암호화 사본을 따로 둔다 (lib/secret-box.ts).
 import { randomInt } from "node:crypto";
 import bcrypt from "bcryptjs";
@@ -10,7 +10,7 @@ import { open, seal } from "./secret-box";
 
 const USERNAME_PREFIX = "user";
 const USERNAME_DIGITS = 3;
-const PASSWORD_DIGITS = 10;
+const PASSWORD_DIGITS = 4;
 
 type StudentLike = {
   _id: unknown;
@@ -18,7 +18,7 @@ type StudentLike = {
   password?: string;
 };
 
-/** 숫자 10자리 임시 비밀번호. */
+/** 숫자 4자리 비밀번호. */
 export function randomParentPassword(): string {
   let out = "";
   for (let i = 0; i < PASSWORD_DIGITS; i++) out += String(randomInt(0, 10));

@@ -1527,7 +1527,7 @@ function StudentForm({
                 checked={!!f.resetParent}
                 onChange={(e) => set("resetParent", e.target.checked)}
               />
-              학부모 비밀번호 재발급 (숫자 10자리를 새로 만들어 알려 줍니다)
+              학부모 비밀번호 재발급 (숫자 4자리를 새로 만들어 알려 줍니다)
             </label>
           )}
         </div>
