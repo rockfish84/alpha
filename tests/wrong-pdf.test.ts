@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { packColumns, spacingFor } from "../lib/wrong-pdf";
+import { columnCountFor, fitBox, packColumns, spacingFor } from "../lib/wrong-pdf";
 
 /** A4 한 단에 쓸 수 있는 세로 길이 (mm) — lib/wrong-pdf.ts 와 같은 값 */
 const CONTENT_H = 297 - (10 + 12) - 10;
@@ -88,4 +88,50 @@ test("문항 순서는 바뀌지 않는다", () => {
 test("한 단 간격은 문항 사이에만 들어간다", () => {
   const cols = packColumns([CONTENT_H - ITEM_GAP - 50, 50]);
   assert.equal(cols.length, 1, "딱 맞는 두 문항은 한 단에 들어가야 한다");
+});
+
+test("문제지는 한 단에 두 문항까지만 넣는다 (= A4 한 장에 네 문항)", () => {
+  // 짧은 문항이어도 빽빽하게 넣지 않고, 남는 자리를 풀 공간으로 준다
+  const cols = packColumns(Array(8).fill(40), { maxPerColumn: 2 });
+  assert.ok(
+    cols.every((c) => c.length <= 2),
+    "한 단에 세 문항 이상 들어갔다"
+  );
+  assert.equal(cols.length, 4, "8문항 → 4단 (= 2장)");
+  assert.ok(spacingFor(cols[0], true) > 80, "풀 공간이 넉넉해야 한다");
+});
+
+test("문제지에서 큰 문항 두 개가 한 단에 들어간다", () => {
+  // A4 한 단(265mm)에 120mm 문항 두 개 → 한 장에 네 문항
+  const cols = packColumns([120, 120, 120, 120], { maxPerColumn: 2 });
+  assert.equal(cols.length, 2);
+  assert.deepEqual(cols.map((c) => c.length), [2, 2]);
+});
+
+test("넓적한 문항은 가로 전체(1단), 길쭉한 문항은 2단으로 배치한다", () => {
+  const img = (width: number, height: number) => ({
+    images: [{ dataUrl: "", width, height }],
+  });
+  // 해설 카드 (문제+풀이가 좌우로 붙어 넓적하다)
+  assert.equal(columnCountFor([img(521, 230), img(521, 240)]), 1);
+  // 문제 카드 (세로로 길다)
+  assert.equal(columnCountFor([img(256, 322), img(256, 300)]), 2);
+  // 이미지가 없으면 기본 2단
+  assert.equal(columnCountFor([]), 2);
+});
+
+test("글자·이미지는 칸에 넣어도 가로세로 비가 그대로다", () => {
+  // 900×33 짜리 라벨을 190mm 칸에 넣을 때, 높이 제한(4.4mm)에 맞춰 줄어야 한다.
+  const box = fitBox(900, 33, 190, 4.4);
+  assert.equal(Math.round(box.h * 10) / 10, 4.4);
+  // 비율 유지: 원본 비(27.3)와 같아야 한다 (예전에는 칸 너비 190mm 로 늘려 글자가 눌렸다)
+  assert.ok(Math.abs(box.w / box.h - 900 / 33) < 0.01, `비율이 ${box.w / box.h}`);
+  assert.ok(box.w <= 190);
+
+  // 칸보다 가로가 긴 경우엔 가로에 맞춰 줄인다
+  const wide = fitBox(2000, 100, 190, 20);
+  assert.equal(Math.round(wide.w), 190);
+  assert.ok(Math.abs(wide.w / wide.h - 20) < 0.01);
+
+  assert.deepEqual(fitBox(0, 10, 100, 100), { w: 0, h: 0 });
 });

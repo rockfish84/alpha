@@ -25,14 +25,63 @@ function getDoc(fileId: string) {
 
 const MAX_SCALE = 2.5;
 
+/** 캔버스에서 내용이 있는 부분만 남기고 둘레 여백을 잘라낸다. */
+function trimCanvas(canvas: HTMLCanvasElement, pad = 8): HTMLCanvasElement {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
+  const { width: w, height: h } = canvas;
+  let data: Uint8ClampedArray;
+  try {
+    data = ctx.getImageData(0, 0, w, h).data;
+  } catch {
+    return canvas; // 교차 출처 등으로 못 읽으면 원본 그대로
+  }
+  let top = h,
+    bottom = -1,
+    left = w,
+    right = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      // 흰 바탕보다 조금이라도 어두우면 내용으로 본다
+      const luma = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      if (luma < 248) {
+        if (y < top) top = y;
+        if (y > bottom) bottom = y;
+        if (x < left) left = x;
+        if (x > right) right = x;
+      }
+    }
+  }
+  if (bottom < 0) return canvas; // 빈 영역
+
+  const x0 = Math.max(0, left - pad);
+  const y0 = Math.max(0, top - pad);
+  const x1 = Math.min(w, right + pad + 1);
+  const y1 = Math.min(h, bottom + pad + 1);
+  if (x1 - x0 >= w && y1 - y0 >= h) return canvas; // 자를 게 없음
+
+  const out = document.createElement("canvas");
+  out.width = x1 - x0;
+  out.height = y1 - y0;
+  const octx = out.getContext("2d");
+  if (!octx) return canvas;
+  octx.fillStyle = "#fff";
+  octx.fillRect(0, 0, out.width, out.height);
+  octx.drawImage(canvas, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+  return out;
+}
+
 /**
  * 문항 영역을 잘라 이미지로 만든다. (오답 PDF 만들기에서 사용)
  * targetWidth 는 결과 이미지의 가로 픽셀 수 기준.
+ * trim 을 켜면 문항 둘레의 빈 여백을 잘라내어 종이를 알차게 쓴다.
  */
 export async function renderRegionImages(
   fileId: string,
   rects: RegionRect[],
-  targetWidth = 720
+  targetWidth = 720,
+  opts: { trim?: boolean } = {}
 ): Promise<{ dataUrl: string; width: number; height: number }[]> {
   const doc = await getDoc(fileId);
   const out: { dataUrl: string; width: number; height: number }[] = [];
@@ -53,10 +102,11 @@ export async function renderRegionImages(
       viewport,
       transform: [1, 0, 0, 1, -rect.x * scale, -rect.y * scale],
     }).promise;
+    const final = opts.trim ? trimCanvas(canvas) : canvas;
     out.push({
-      dataUrl: canvas.toDataURL("image/jpeg", 0.82),
-      width: canvas.width,
-      height: canvas.height,
+      dataUrl: final.toDataURL("image/jpeg", 0.82),
+      width: final.width,
+      height: final.height,
     });
   }
   return out;

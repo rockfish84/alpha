@@ -8,8 +8,12 @@
  * - 이미 있는 학부모 계정도 새 아이디·비밀번호로 덮어쓴다.
  *
  *   npx tsx scripts/issue-parent-accounts.ts                      # DRY RUN
- *   npx tsx scripts/issue-parent-accounts.ts --apply              # 발급
+ *   npx tsx scripts/issue-parent-accounts.ts --apply              # 전체 재발급
  *   npx tsx scripts/issue-parent-accounts.ts --apply --exclude=대수
+ *
+ * --fill 을 붙이면 계정이 없는 학생에게만 발급한다 (이미 나눠 준 계정은 그대로 둔다).
+ * --only=이름,이름 으로 특정 학생만 고를 수 있다.
+ *   npx tsx scripts/issue-parent-accounts.ts --apply --fill --only=김정훈,오현민
  */
 import "dotenv/config";
 import fs from "node:fs";
@@ -18,15 +22,25 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import { dbConnect } from "../lib/db";
 import { Enrollment, Parent, Student, Term } from "../lib/models";
-import { randomParentPassword } from "../lib/parents";
+import { nextParentUsername, randomParentPassword, readParentPassword } from "../lib/parents";
+import { seal } from "../lib/secret-box";
 
 const APPLY = process.argv.includes("--apply");
+/** 계정이 없는 학생에게만 발급 (기존 계정은 건드리지 않는다) */
+const FILL = process.argv.includes("--fill");
+const ONLY = process.argv
+  .filter((a) => a.startsWith("--only="))
+  .flatMap((a) => a.slice("--only=".length).split(",").map((s) => s.trim()))
+  .filter(Boolean);
 const EXCLUDED = process.argv
   .filter((a) => a.startsWith("--exclude="))
   .flatMap((a) => a.slice("--exclude=".length).split(",").map((s) => s.trim()))
   .filter(Boolean);
 
-const OUT = path.join(process.cwd(), "학부모 계정 발급.csv");
+const OUT = path.join(
+  process.cwd(),
+  FILL ? "학부모 계정 발급(추가).csv" : "학부모 계정 발급.csv"
+);
 
 async function main() {
   await dbConnect();
@@ -51,12 +65,31 @@ async function main() {
     .filter(([, subs]) => [...subs].some((s) => !EXCLUDED.includes(s)))
     .map(([id]) => id);
 
-  const students = await Student.find({ _id: { $in: targetIds } }).lean();
+  let students = await Student.find({ _id: { $in: targetIds } }).lean();
+  if (ONLY.length) students = students.filter((s) => ONLY.includes(s.name));
   students.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+
+  if (FILL) {
+    // 이미 쓸 수 있는 계정이 있는 학생은 건드리지 않는다.
+    const parents = await Parent.find({
+      student: { $in: students.map((s) => s._id) },
+    }).lean();
+    const has = new Set(
+      parents
+        .filter((p) => readParentPassword(p))
+        .map((p) => String(p.student))
+    );
+    students = students.filter((s) => !has.has(String(s._id)));
+  }
 
   console.log(`진행 중 학기: ${terms.map((t) => t.name).join(", ")}`);
   if (EXCLUDED.length) console.log(`제외한 반: ${EXCLUDED.join(", ")}`);
   console.log(`대상 학생 ${students.length}명 (전체 재원 ${subjectsOf.size}명)\n`);
+
+  // --fill 이면 기존 마지막 번호 다음부터 이어 붙인다.
+  const startNo = FILL
+    ? Number((await nextParentUsername()).replace(/\D/g, "")) || 1
+    : 1;
 
   const rows: {
     no: number;
@@ -73,12 +106,12 @@ async function main() {
       (s) => !EXCLUDED.includes(s)
     );
     rows.push({
-      no: i + 1,
+      no: startNo + i,
       name: stu.name,
       school: stu.school ?? "",
       studentId: stu.username,
       subjects: subs.join(" / "),
-      username: `user${String(i + 1).padStart(3, "0")}`,
+      username: `user${String(startNo + i).padStart(3, "0")}`,
       password: randomParentPassword(),
     });
   });
@@ -96,6 +129,7 @@ async function main() {
   }
 
   // 아이디가 겹치지 않도록 대상 학생의 기존 계정을 먼저 비운다.
+  // (--fill 은 계정이 없는 학생만 골라 왔으므로 지울 게 거의 없다)
   const studentIds = students.map((s) => s._id);
   await Parent.deleteMany({ student: { $in: studentIds } });
 
@@ -105,6 +139,8 @@ async function main() {
       student: stu._id,
       username: r.username,
       password: await bcrypt.hash(r.password, 10),
+      // 관리자 화면에서 다시 볼 수 있도록 사본도 함께 저장한다
+      passwordSealed: seal(r.password),
       selfChanged: true, // 학생 계정과 연동하지 않는다
     });
   }

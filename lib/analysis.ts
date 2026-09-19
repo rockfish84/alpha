@@ -151,6 +151,12 @@ export async function buildTestAnalyses(
     );
     const topGroup = sorted.length >= MIN_TOP_GROUP ? sorted.slice(0, Math.min(topCount, sorted.length)) : [];
 
+    // 기출 회차는 유형(단원) 대신 학교 이름으로 묶이는 게 자연스럽다.
+    // 문항에 단원을 직접 적어 두었으면 그 값을 그대로 쓴다.
+    const pastExamType = config?.pastExam
+      ? String(config?.pastExamSchool ?? "").trim()
+      : "";
+
     const allRegions = normalizeRegions(config?.questionRegions ?? []);
     const questionAnalyses: QuestionAnalysis[] = [];
     if (hasKey) {
@@ -276,7 +282,7 @@ export async function buildTestAnalyses(
           label,
           no: q.no,
           part: q.part,
-          type: q.type,
+          type: q.type || pastExamType,
           difficulty: q.difficulty,
           points: q.points,
           answer: q.answer,

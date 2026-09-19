@@ -30,12 +30,19 @@ const ITEM_GAP = 5;
 const MIN_FIT = 0.62;
 /** 해설지에서 문항 사이에 둘 최대 여백 (mm) */
 const MAX_SPREAD = 18;
-/** 문제지에서 문항 아래에 남길 최소 풀 공간 (mm) */
-const MIN_WORK_SPACE = 10;
+/** 문제지는 한 단에 두 문항까지 (= A4 한 장에 네 문항). 남는 자리는 풀 공간이 된다. */
+const QUESTION_PER_COLUMN = 2;
 
-const COL_W = (PAGE_W - MARGIN * 2 - GUTTER) / 2;
+/** 가로로 넓적한 문항은 한 단(가로 전체)으로 써야 종이를 꽉 채운다 */
+const WIDE_ASPECT = 1.45;
 const CONTENT_TOP = MARGIN + HEADER_H;
 const CONTENT_H = PAGE_H - CONTENT_TOP - MARGIN;
+
+/** 단 수에 따른 단 너비 (mm) */
+const colWidth = (columns: number) =>
+  (PAGE_W - MARGIN * 2 - GUTTER * (columns - 1)) / columns;
+
+const COL_W = colWidth(2);
 
 type Img = { dataUrl: string; width: number; height: number };
 type Block = { label: string; images: Img[] };
@@ -69,6 +76,21 @@ function textImage(
   return { dataUrl: canvas.toDataURL("image/jpeg", 0.85), width: canvas.width, height };
 }
 
+/**
+ * 이미지를 칸 안에 넣을 때의 크기 (mm). 가로세로 비를 그대로 지킨다.
+ * 칸 너비에 억지로 맞추면 글자가 눌려 보이므로 반드시 이 계산을 쓴다.
+ */
+export function fitBox(
+  imgW: number,
+  imgH: number,
+  maxW: number,
+  maxH: number
+): { w: number; h: number } {
+  if (imgW <= 0 || imgH <= 0) return { w: 0, h: 0 };
+  const scale = Math.min(maxW / imgW, maxH / imgH);
+  return { w: imgW * scale, h: imgH * scale };
+}
+
 /** 한 단에 담긴 문항 하나 (그릴 높이와 축소 비율) */
 export interface PackedItem {
   index: number;
@@ -85,10 +107,17 @@ export interface PackedItem {
  */
 export function packColumns(
   heights: number[],
-  opts: { contentH?: number; workSpace?: number; shrinkToFit?: boolean } = {}
+  opts: {
+    contentH?: number;
+    workSpace?: number;
+    shrinkToFit?: boolean;
+    /** 한 단에 넣을 문항 수 상한 (문제지는 풀 공간을 남기려고 제한한다) */
+    maxPerColumn?: number;
+  } = {}
 ): PackedItem[][] {
   const contentH = opts.contentH ?? CONTENT_H;
   const workSpace = opts.workSpace ?? 0;
+  const maxPerColumn = opts.maxPerColumn ?? Infinity;
   // 해설지는 남는 자리를 없애려고 조금 줄여서라도 채운다.
   // 문제지는 줄이지 않는다 — 남는 자리가 곧 풀 공간이라 버리는 공간이 아니다.
   const shrinkToFit = opts.shrinkToFit ?? true;
@@ -103,12 +132,19 @@ export function packColumns(
   };
 
   heights.forEach((natural, index) => {
+    if (cur.length >= maxPerColumn) flush();
     const gap = cur.length ? ITEM_GAP : 0;
     const room = contentH - used - gap;
 
     if (natural + workSpace <= room) {
       cur.push({ index, height: natural, shrink: 1 });
       used += gap + natural + workSpace;
+      return;
+    }
+    // 풀 공간까지는 못 넣어도 문항 자체가 들어가면 넣는다 (그만큼 종이를 더 쓴다)
+    if (natural <= room) {
+      cur.push({ index, height: natural, shrink: 1 });
+      used += gap + natural;
       return;
     }
     // 남은 자리가 제법 되면 조금 줄여서 이 단을 끝까지 채운다
@@ -150,12 +186,27 @@ export function spacingFor(
 }
 
 /** 이미지 폭을 칸 너비에 맞췄을 때의 높이(mm) */
-function blockHeight(block: Block): number {
-  const imgs = block.images.reduce(
-    (a, im) => a + (COL_W * im.height) / im.width,
-    0
-  );
+function blockHeight(block: Block, colW: number = COL_W): number {
+  const imgs = block.images.reduce((a, im) => a + (colW * im.height) / im.width, 0);
   return LABEL_H + imgs;
+}
+
+/** 문항들의 가로세로 비를 보고 단 수를 정한다 (넓적하면 1단, 길쭉하면 2단). */
+export function columnCountFor(blocks: { images: Img[] }[]): number {
+  const ratios: number[] = [];
+  for (const b of blocks) {
+    const first = b.images[0];
+    if (!first?.width) continue;
+    // 여러 조각이면 같은 폭으로 이어 붙였을 때의 전체 높이로 본다
+    const height = b.images.reduce(
+      (a, im) => a + (first.width * im.height) / im.width,
+      0
+    );
+    if (height > 0) ratios.push(first.width / height);
+  }
+  if (!ratios.length) return 2;
+  ratios.sort((a, b) => a - b);
+  return ratios[Math.floor(ratios.length / 2)] >= WIDE_ASPECT ? 1 : 2;
 }
 
 export async function buildWrongNotePdf(
@@ -178,7 +229,10 @@ export async function buildWrongNotePdf(
     } else {
       blocks.push({
         label: wantQuestion ? item.title : `${item.title} — 답·해설`,
-        images: await renderRegionImages(source.fileId, source.rects),
+        // 문항 둘레의 빈 여백을 잘라내야 종이가 꽉 찬다
+        images: await renderRegionImages(source.fileId, source.rects, 720, {
+          trim: true,
+        }),
       });
     }
     done += 1;
@@ -195,16 +249,17 @@ export async function buildWrongNotePdf(
       1200,
       { size: 24, color: "#5A6578", bold: true }
     );
-    const w = PAGE_W - MARGIN * 2 - 14;
-    doc.addImage(title.dataUrl, "JPEG", MARGIN, MARGIN, w, (w * title.height) / title.width);
+    const titleBox = fitBox(title.width, title.height, PAGE_W - MARGIN * 2 - 14, HEADER_H / 2);
+    doc.addImage(title.dataUrl, "JPEG", MARGIN, MARGIN, titleBox.w, titleBox.h);
     const num = textImage(String(page), 120, { size: 24, color: "#93A0B4", align: "right" });
+    const numBox = fitBox(num.width, num.height, 12, HEADER_H / 2);
     doc.addImage(
       num.dataUrl,
       "JPEG",
-      PAGE_W - MARGIN - 12,
+      PAGE_W - MARGIN - numBox.w,
       MARGIN,
-      12,
-      (12 * num.height) / num.width
+      numBox.w,
+      numBox.h
     );
     doc.setDrawColor(220);
     doc.line(MARGIN, MARGIN + 7.5, PAGE_W - MARGIN, MARGIN + 7.5);
@@ -212,32 +267,35 @@ export async function buildWrongNotePdf(
 
   /* ── 1단계: 문항을 단(column)에 순서대로 담는다.
      (예전에는 한 단을 위·아래 두 칸으로 나눠 써서 짧은 문항 뒤에 빈 곳이 크게 남았다) */
-  const packed = packColumns(blocks.map(blockHeight), {
-    workSpace: wantQuestion ? MIN_WORK_SPACE : 0,
-    shrinkToFit: !wantQuestion,
-  });
+  // 넓적한 문항(해설 카드 등)은 가로 전체를 쓰는 1단이 종이를 더 꽉 채운다.
+  const columnCount = columnCountFor(blocks);
+  const colW = colWidth(columnCount);
+
+  const packed = packColumns(
+    blocks.map((b) => blockHeight(b, colW)),
+    {
+      // 문제지는 한 단에 두 문항까지만 넣고 나머지 자리를 풀 공간으로 준다.
+      maxPerColumn: wantQuestion ? QUESTION_PER_COLUMN : undefined,
+      shrinkToFit: !wantQuestion,
+    }
+  );
 
   /* ── 2단계: 단마다 남는 자리를 나눠 준다.
      문제지는 문항 아래 풀 공간으로, 해설지는 문항 사이 간격으로 (너무 벌어지지 않게 제한). */
   const draw = (placed: PackedItem, col: number, top: number) => {
     const block = blocks[placed.index];
-    const x = MARGIN + col * (COL_W + GUTTER);
+    const x = MARGIN + col * (colW + GUTTER);
     const label = textImage(block.label, 900, {
       size: 22,
       color: "#2C4A82",
       bold: true,
     });
-    doc.addImage(
-      label.dataUrl,
-      "JPEG",
-      x,
-      top,
-      COL_W,
-      Math.min(LABEL_H - 0.8, (COL_W * label.height) / label.width)
-    );
+    // 가로세로 비를 그대로 지킨다 (칸 너비에 늘리면 글자가 눌려 보인다)
+    const box = fitBox(label.width, label.height, colW, LABEL_H - 0.8);
+    doc.addImage(label.dataUrl, "JPEG", x, top, box.w, box.h);
     let imgY = top + LABEL_H;
     for (const im of block.images) {
-      const w = COL_W * placed.shrink;
+      const w = colW * placed.shrink;
       const hh = (w * im.height) / im.width;
       doc.addImage(im.dataUrl, "JPEG", x, imgY, w, hh, undefined, "FAST");
       imgY += hh;
@@ -246,7 +304,7 @@ export async function buildWrongNotePdf(
 
   drawHeader();
   packed.forEach((items, index) => {
-    const col = index % 2;
+    const col = index % columnCount;
     if (index > 0 && col === 0) {
       doc.addPage();
       page += 1;

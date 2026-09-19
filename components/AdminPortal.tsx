@@ -18,6 +18,8 @@ import {
   PenLine,
   Image as ImageIcon,
   Link2 as LinkIcon,
+  KeyRound,
+  Copy,
 } from "lucide-react";
 import {
   T,
@@ -1596,6 +1598,461 @@ function StudentForm({
         <Save size={16} />
         저장
       </Btn>
+    </div>
+  );
+}
+
+/* ============================== 학부모 계정 안내 ============================== */
+/**
+ * 재원 학생의 학부모에게 보낼 계정 안내문을 만들어 두는 화면.
+ *
+ * 여기서는 문자를 보내지 않는다. 안내문을 만들어 복사만 한다.
+ * (발송은 학원에서 쓰던 문자 프로그램으로 직접 한다)
+ */
+const NOTICE_TEMPLATE = `[더브코 알파 클리닉] 학부모 전용 계정 안내
+
+자녀의 클리닉 테스트 성적과 과제 수행 현황을 확인하실 수 있는 학부모 페이지를 안내드립니다.
+
+접속 주소: {사이트}
+아이디: {아이디}
+비밀번호: {비밀번호}
+
+로그인 화면 상단에서 '학부모' 탭을 선택한 뒤 위 정보를 입력해 주세요.
+휴대폰보다 PC로 보시면 성적 그래프와 표가 한눈에 들어와 보기 편합니다.
+
+비밀번호를 잊으셨거나 로그인이 되지 않으시면 본 번호로 문의해 주세요. 확인 후 새로 발급해 드리겠습니다.
+
+감사합니다.`;
+
+const NOTICE_SITE = "http://www.ohyunmin-clinic.com";
+
+function fillNotice(
+  template: string,
+  student: Student,
+  site: string
+): string {
+  return template
+    .replaceAll("{학생}", student.name)
+    .replaceAll("{아이디}", student.parentUsername || "(미발급)")
+    .replaceAll("{비밀번호}", student.parentPassword || "(재발급 필요)")
+    .replaceAll("{사이트}", site);
+}
+
+function AdminParentNotice({ students }: { students: Student[] }) {
+  // 진행 중인 학기 전체에서 모은 명단 (종료된 반 제외). 못 불러오면 지금 학기만 쓴다.
+  const [roster, setRoster] = useState<Student[] | null>(null);
+  const [loadNote, setLoadNote] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const terms: TermInfo[] = await api.get("/api/admin/terms");
+        const active = terms.filter((t) => t.active);
+        const lists = await Promise.all(
+          active.map((t) =>
+            api
+              .get(`/api/admin/roster?term=${t.id}`)
+              .then((rows: Student[]) => ({ term: t, rows }))
+          )
+        );
+        if (cancelled) return;
+
+        // 같은 학생이 두 학기에 다 있으면 한 번만 넣는다.
+        const merged = new Map<string, Student>();
+        const names: string[] = [];
+        for (const { term, rows } of lists) {
+          // 종료 처리한 반은 빼고, 지금 돌아가는 반만 남긴다
+          const open = visibleSubjects(term, false);
+          names.push(`${term.name} (${open.length}개 반)`);
+          for (const row of rows) {
+            if (row.status !== "재원") continue;
+            // 끝난 반만 듣는 학생에게는 보내지 않는다
+            if (!row.subjects.some((sub) => open.includes(sub))) continue;
+            const prev = merged.get(row.id);
+            merged.set(
+              row.id,
+              prev ? { ...prev, subjects: [...new Set([...prev.subjects, ...row.subjects])] } : row
+            );
+          }
+        }
+        setRoster([...merged.values()]);
+        setLoadNote(names.join(" · "));
+      } catch {
+        if (!cancelled) setRoster(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const pool = roster ?? students;
+
+  const [template, setTemplate] = useState(NOTICE_TEMPLATE);
+  const [site, setSite] = useState(NOTICE_SITE);
+  const [q, setQ] = useState("");
+  const [copied, setCopied] = useState("");
+  // 보낼 학생 (직접 골라야 나간다 — 실수로 전체 발송되지 않도록)
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [sending, setSending] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [result, setResult] = useState<SendSummary | null>(null);
+  const [smsReady, setSmsReady] = useState<boolean | null>(null);
+  const [testTo, setTestTo] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .get("/api/admin/notify")
+      .then((d) => {
+        setSmsReady(!!d.configured);
+        setTestTo(d.testTo ?? null);
+      })
+      .catch(() => setSmsReady(false));
+  }, []);
+
+  // 재원 학생만 대상. 계정이 없거나 비밀번호를 볼 수 없으면 따로 표시한다.
+  const targets = useMemo(
+    () =>
+      pool
+        .filter((s) => s.status === "재원")
+        .filter((s) => s.name.includes(q) || (s.parentUsername ?? "").includes(q))
+        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
+    [pool, q]
+  );
+  const ready = targets.filter((s) => s.parentUsername && s.parentPassword);
+  const missing = targets.filter((s) => !s.parentUsername || !s.parentPassword);
+  const noPhone = ready.filter((s) => !s.phone);
+
+  const copy = async (text: string, key: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      setTimeout(() => setCopied(""), 1500);
+    } catch {
+      alert("복사에 실패했습니다. 직접 선택해 복사해주세요.");
+    }
+  };
+
+  const sendable = ready.filter((s) => s.phone && picked.has(s.id));
+  const allPicked = ready.length > 0 && ready.every((s) => picked.has(s.id));
+
+  const toggle = (id: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  /** 고른 학생에게만 문자를 보낸다. 누르기 전에 한 번 더 확인한다. */
+  const send = async () => {
+    if (!sendable.length || sending) return;
+    const names = sendable.map((s) => s.name).join(", ");
+    const where = testTo ? `\n\n※ 테스트 번호(${testTo})로만 발송됩니다.` : "";
+    if (
+      !confirm(
+        `${sendable.length}명에게 학부모 계정 안내 문자를 보냅니다.\n\n${names}${where}\n\n보낼까요?`
+      )
+    ) {
+      return;
+    }
+    setSending(true);
+    setResult(null);
+    setProgress({ done: 0, total: sendable.length });
+    try {
+      const summary = await sendBatched(
+        sendable.map((s) => ({
+          to: s.phone as string,
+          text: fillNotice(template, s, site),
+        })),
+        20,
+        (done, total) => setProgress({ done, total })
+      );
+      setResult(summary);
+    } catch (e: any) {
+      alert(e?.message || "발송에 실패했습니다.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const nameByNum = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const s of pool) if (s.phone) map[s.phone] = s.name;
+    return map;
+  }, [pool]);
+
+  /** 문자 프로그램에 붙여 넣기 좋은 표 (번호 + 안내문) */
+  const asTable = () =>
+    ready
+      .map((s) =>
+        [s.phone ?? "", fillNotice(template, s, site).replaceAll("\n", " ")].join("\t")
+      )
+      .join("\n");
+
+  return (
+    <div>
+      <SectionTitle>학부모 계정 안내</SectionTitle>
+
+      <div
+        style={{
+          padding: "11px 14px",
+          background: T.primarySoft,
+          color: T.primary,
+          borderRadius: 10,
+          fontSize: 13,
+          fontWeight: 700,
+          marginBottom: 14,
+          lineHeight: 1.6,
+        }}
+      >
+        보낼 학생을 <b>직접 골라야</b> 문자가 나갑니다. 고른 뒤 아래 <b>선택한 N명에게 문자 보내기</b>를
+        누르면 한 번 더 확인합니다.
+        <div style={{ fontWeight: 500, marginTop: 4 }}>
+          대상: 진행 중인 학기의 <b>재원 학생</b>
+          {loadNote ? ` — ${loadNote}` : ""}. <b>종료된 반</b>만 듣는 학생은 목록에서 빠집니다.
+        </div>
+        {testTo && (
+          <div style={{ color: T.warn, marginTop: 4 }}>
+            지금은 테스트 모드입니다 — 모든 문자가 <b>{testTo}</b> 로만 갑니다
+            (.env 의 SMS_TEST_TO).
+          </div>
+        )}
+        {smsReady === false && (
+          <div style={{ color: T.bad, marginTop: 4 }}>
+            문자 발송 설정이 아직 없습니다 (SOLAPI_API_KEY / SECRET / SENDER). 복사만 가능합니다.
+          </div>
+        )}
+      </div>
+
+      <Card style={{ padding: 14, marginBottom: 14 }}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+          <div style={{ minWidth: 230, flex: 1 }}>
+            <div style={lbl}>접속 주소</div>
+            <input
+              style={inputBase}
+              value={site}
+              onChange={(e) => setSite(e.target.value)}
+            />
+          </div>
+          <div style={{ minWidth: 180 }}>
+            <div style={lbl}>학생 찾기</div>
+            <input
+              style={inputBase}
+              value={q}
+              placeholder="이름 또는 아이디"
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div style={lbl}>안내문 (그대로 쓰거나 고쳐서 쓰세요)</div>
+        <textarea
+          style={{
+            ...inputBase,
+            width: "100%",
+            minHeight: 160,
+            fontFamily: FONT,
+            lineHeight: 1.6,
+            resize: "vertical",
+          }}
+          value={template}
+          onChange={(e) => setTemplate(e.target.value)}
+        />
+        <div style={{ fontSize: 12.5, color: T.sub, marginTop: 6, lineHeight: 1.6 }}>
+          <b>{"{학생}"}</b> · <b>{"{아이디}"}</b> · <b>{"{비밀번호}"}</b> · <b>{"{사이트}"}</b>{" "}
+          자리에 학생별 값이 들어갑니다.
+        </div>
+      </Card>
+
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap",
+          alignItems: "center",
+          marginBottom: 12,
+        }}
+      >
+        <Pill tone="primary">재원 {targets.length}명</Pill>
+        <Pill tone="ok">안내 가능 {ready.length}명</Pill>
+        {missing.length > 0 && <Pill tone="bad">계정 없음 {missing.length}명</Pill>}
+        {noPhone.length > 0 && <Pill tone="warn">번호 없음 {noPhone.length}명</Pill>}
+        <div style={{ flex: 1 }} />
+        <Btn
+          variant="outline"
+          size="sm"
+          disabled={!ready.length}
+          onClick={() => copy(asTable(), "table")}
+          title="번호와 안내문을 탭으로 나눠 복사합니다. 엑셀·문자 프로그램에 그대로 붙여 넣으세요."
+        >
+          <Copy size={14} /> {copied === "table" ? "복사됨" : "번호+안내문 전체 복사"}
+        </Btn>
+        <Btn
+          variant="outline"
+          size="sm"
+          disabled={!ready.length}
+          onClick={() =>
+            copy(
+              ready.map((s) => fillNotice(template, s, site)).join("\n\n———\n\n"),
+              "all"
+            )
+          }
+        >
+          <Copy size={14} /> {copied === "all" ? "복사됨" : "안내문 전체 복사"}
+        </Btn>
+        <Btn
+          variant="outline"
+          size="sm"
+          disabled={!ready.length}
+          onClick={() =>
+            setPicked(allPicked ? new Set() : new Set(ready.map((s) => s.id)))
+          }
+        >
+          {allPicked ? "선택 해제" : "안내 가능 전체 선택"}
+        </Btn>
+        <Btn
+          size="sm"
+          disabled={!sendable.length || sending || smsReady === false}
+          onClick={send}
+          title="고른 학생의 학부모 번호로 안내 문자를 보냅니다."
+        >
+          <Send size={14} />
+          {sending
+            ? `보내는 중… ${progress.done}/${progress.total}`
+            : `선택한 ${sendable.length}명에게 문자 보내기`}
+        </Btn>
+      </div>
+
+      <SendResultView result={result} nameByNum={nameByNum} />
+
+      {missing.length > 0 && (
+        <div
+          style={{
+            padding: "10px 13px",
+            background: T.badSoft,
+            color: T.bad,
+            borderRadius: 9,
+            fontSize: 12.5,
+            fontWeight: 600,
+            marginBottom: 12,
+            lineHeight: 1.6,
+          }}
+        >
+          계정이 없거나 비밀번호를 볼 수 없는 학생: {missing.map((s) => s.name).join(", ")}
+          <br />
+          <span style={{ fontWeight: 500 }}>
+            학생 관리 탭에서 그 학생을 수정하며 <b>학부모 비밀번호 재발급</b>을 체크하면 발급됩니다.
+          </span>
+        </div>
+      )}
+
+      <Card style={{ overflow: "hidden" }}>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
+            <thead>
+              <tr>
+                {["", "학생", "학부모 번호", "아이디", "비밀번호", "안내문", ""].map((h, i) => (
+                  <th
+                    key={`${h}-${i}`}
+                    style={{
+                      textAlign: "left",
+                      padding: "10px 14px",
+                      fontSize: 12.5,
+                      color: T.sub,
+                      background: "#F7F9FC",
+                      borderBottom: `1px solid ${T.line}`,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {targets.map((s) => {
+                const ok = !!(s.parentUsername && s.parentPassword);
+                const text = fillNotice(template, s, site);
+                return (
+                  <tr
+                    key={s.id}
+                    style={{
+                      borderBottom: `1px solid ${T.line}`,
+                      background: picked.has(s.id) ? T.primarySoft : undefined,
+                    }}
+                  >
+                    <td style={{ padding: "10px 14px", width: 36 }}>
+                      <input
+                        type="checkbox"
+                        checked={picked.has(s.id)}
+                        disabled={!ok || !s.phone}
+                        onChange={() => toggle(s.id)}
+                        title={
+                          !ok
+                            ? "계정을 먼저 발급해주세요"
+                            : !s.phone
+                            ? "학부모 번호가 없습니다"
+                            : "문자 보낼 학생으로 고르기"
+                        }
+                      />
+                    </td>
+                    <td style={{ padding: "10px 14px", fontWeight: 700, whiteSpace: "nowrap" }}>
+                      {s.name}
+                      <div style={{ fontSize: 11.5, color: T.muted, fontWeight: 500 }}>
+                        {s.school || "—"}
+                      </div>
+                    </td>
+                    <td
+                      style={{
+                        padding: "10px 14px",
+                        fontFamily: "monospace",
+                        color: s.phone ? T.sub : T.bad,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {s.phone || "번호 없음"}
+                    </td>
+                    <td style={{ padding: "10px 14px", fontFamily: "monospace" }}>
+                      {s.parentUsername || "—"}
+                    </td>
+                    <td style={{ padding: "10px 14px", fontFamily: "monospace" }}>
+                      {s.parentPassword || (
+                        <span style={{ color: T.bad }}>재발급 필요</span>
+                      )}
+                    </td>
+                    <td
+                      style={{
+                        padding: "10px 14px",
+                        fontSize: 12,
+                        color: T.sub,
+                        maxWidth: 320,
+                        whiteSpace: "pre-wrap",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {ok ? text : "계정을 먼저 발급해주세요."}
+                    </td>
+                    <td style={{ padding: "10px 14px" }}>
+                      <Btn
+                        variant="ghost"
+                        size="xs"
+                        disabled={!ok}
+                        onClick={() => copy(text, s.id)}
+                      >
+                        <Copy size={13} />
+                        {copied === s.id ? "복사됨" : "복사"}
+                      </Btn>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {!targets.length && <Empty icon={<Users size={28} />} text="재원 중인 학생이 없습니다" />}
+      </Card>
     </div>
   );
 }
@@ -3919,6 +4376,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
     { k: "scores", label: "성적 입력", icon: <PenLine size={18} /> },
     { k: "weekly", label: "주간 안내 문자", icon: <Send size={18} /> },
     { k: "students", label: "학생 관리", icon: <Users size={18} /> },
+    { k: "parentNotice", label: "학부모 계정 안내", icon: <KeyRound size={18} /> },
     { k: "schoolExams", label: "학교 성적 관리", icon: <FileText size={18} /> },
     { k: "responses", label: "응답 관리", icon: <Inbox size={18} /> },
     { k: "terms", label: "학기 관리", icon: <CalendarDays size={18} /> },
@@ -4058,6 +4516,9 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                   onUpdateStudent={updateStudent}
                   onDeleteStudent={deleteStudent}
                 />
+              )}
+              {tab === "parentNotice" && (
+                <AdminParentNotice key={termId} students={students} />
               )}
               {tab === "schoolExams" && term && (
                 <AdminSchoolExams
