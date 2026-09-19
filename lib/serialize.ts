@@ -1,5 +1,6 @@
 import { isoDate } from "./date";
 import { serializeSchoolExamResults } from "./school-exams";
+import { readParentPassword } from "./parents";
 
 /** Mongoose doc (lean or hydrated) -> plain client shape. */
 export function serializeStudent(doc: any) {
@@ -29,8 +30,10 @@ export function serializeRoster(enr: any, stu: any, parent?: any) {
     grade: (enr.grade ?? "") as string,
     subjects: (enr.subjects ?? []) as string[],
     status: (enr.status ?? "재원") as "재원" | "퇴원",
-    // 학부모 계정: 학원이 발급한 아이디(user001…). 비밀번호는 해시만 있어 보여 줄 수 없다.
+    // 학부모 계정: 학원이 발급한 아이디(user001…)와 비밀번호.
+    // 관리자 전용 응답에서만 쓰인다 (requireAdmin 뒤).
     parentUsername: (parent?.username ?? "") as string,
+    parentPassword: readParentPassword(parent),
     // 관리자 학교 성적 탭에서 조회할 학생의 학교 과목 목록.
     schoolExamResults: serializeSchoolExamResults(enr.schoolExamResults),
   };

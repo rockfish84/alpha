@@ -1,11 +1,12 @@
 // 학부모 계정 helper.
 //
 // 학부모 계정은 학생 계정과 완전히 별개다. 아이디는 학원이 user001 · user002 … 로
-// 발급하고, 비밀번호는 숫자 10자리를 무작위로 만들어 발급 시점에 한 번만 알려 준다.
-// (DB 에는 해시만 남으므로 나중에 다시 볼 수 없고, 잊었으면 재발급한다)
+// 발급하고, 비밀번호는 숫자 10자리를 무작위로 만든다. 로그인 검증은 bcrypt 해시로 하고,
+// 학원이 다시 확인할 수 있도록 암호화 사본을 따로 둔다 (lib/secret-box.ts).
 import { randomInt } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { Parent } from "./models";
+import { open, seal } from "./secret-box";
 
 const USERNAME_PREFIX = "user";
 const USERNAME_DIGITS = 3;
@@ -52,6 +53,7 @@ export async function ensureParent(
     student: student._id,
     username,
     password: await bcrypt.hash(password, 10),
+    passwordSealed: seal(password),
     // 학생 계정과 연동하지 않는다 (학생이 비밀번호를 바꿔도 따라가지 않음)
     selfChanged: true,
   });
@@ -66,7 +68,15 @@ export async function reissueParentPassword(
   if (!parent) return null;
   const password = randomParentPassword();
   parent.password = await bcrypt.hash(password, 10);
+  parent.passwordSealed = seal(password);
   parent.selfChanged = true;
   await parent.save();
   return { username: parent.username, password };
+}
+
+/** 관리자 화면에 보여 줄 학부모 비밀번호 (사본을 열 수 없으면 빈 문자열). */
+export function readParentPassword(
+  parent: { passwordSealed?: unknown } | null | undefined
+): string {
+  return open(parent?.passwordSealed);
 }

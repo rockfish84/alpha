@@ -60,7 +60,7 @@ export async function POST(req: Request) {
   const term = await resolveTerm(body.term);
   if (!term) return NextResponse.json({ error: "학기가 없습니다." }, { status: 400 });
 
-  // 학부모 계정을 새로 만들면 그 비밀번호는 여기서 한 번만 내려보낸다.
+  // 학부모 계정을 새로 만들면 그 비밀번호는 이 응답에서 한 번만 내려간다 (저장하지 않는다).
   let issued: string | null = null;
   let student = await Student.findOne({ username });
   if (!student) {

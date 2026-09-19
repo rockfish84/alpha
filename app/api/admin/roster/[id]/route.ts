@@ -72,7 +72,7 @@ export async function PATCH(
   const parent = await Parent.findOne({ student: student._id }).lean();
   return NextResponse.json({
     ...serializeRoster(enr.toObject(), student.toObject(), parent),
-    // 새로 만들었거나 재발급했을 때만 내려간다 (다시 볼 수 없으니 바로 안내할 것)
+    // 새로 만들었거나 재발급했을 때만 내려간다 (저장하지 않으므로 이때 알려 줘야 한다)
     parentPassword: reissued?.password ?? ensured.password ?? null,
   });
 }

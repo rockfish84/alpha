@@ -197,8 +197,12 @@ const ParentSchema = new Schema(
   {
     student: { type: Schema.Types.ObjectId, ref: "Student", required: true, unique: true },
     username: { type: String, required: true, unique: true },
-    password: { type: String, required: true }, // bcrypt hash (평문 저장 안 함)
-    // 학부모가 직접 비밀번호를 바꾸기 전까지는 학생 비밀번호와 같이 유지된다.
+    password: { type: String, required: true }, // bcrypt hash (로그인 검증용)
+    // 학원이 발급한 비밀번호의 암호화 사본. 학부모 계정은 학원이 만들어 통지하는
+    // 조회 전용 계정이라 관리자가 다시 확인할 수 있어야 한다 (lib/secret-box.ts).
+    // 여는 열쇠는 SESSION_SECRET 이며, 평문으로는 저장하지 않는다.
+    passwordSealed: { type: String, default: "" },
+    // (예전 방식) 학부모가 직접 비밀번호를 바꿨는지
     selfChanged: { type: Boolean, default: false },
   },
   { timestamps: true }

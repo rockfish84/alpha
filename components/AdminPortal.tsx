@@ -1742,7 +1742,7 @@ function AdminStudents({
                   "이름",
                   "아이디",
                   "전화번호",
-                  "학부모 아이디",
+                  "학부모 계정",
                   "학교",
                   "학년",
                   "과목",
@@ -1805,9 +1805,14 @@ function AdminStudents({
                       fontFamily: "monospace",
                       whiteSpace: "nowrap",
                     }}
-                    title="학원이 발급한 학부모 아이디입니다. 비밀번호는 저장돼 있지 않아 잊으면 재발급해야 합니다."
+                    title="학원이 발급한 학부모 계정입니다. 학부모는 스스로 비밀번호를 바꿀 수 없습니다."
                   >
                     {s.parentUsername || "—"}
+                    {!!s.parentUsername && (
+                      <div style={{ fontSize: 12, color: s.parentPassword ? T.sub : T.muted }}>
+                        {s.parentPassword || "비밀번호 재발급 필요"}
+                      </div>
+                    )}
                   </td>
                   <td style={{ padding: "11px 14px", color: T.sub, whiteSpace: "nowrap" }}>
                     {s.school || "—"}
@@ -3834,14 +3839,15 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
     }
   };
 
-  /** 학부모 계정을 새로 발급했으면 그 자리에서 알려 준다 (비밀번호는 다시 볼 수 없다). */
+  /** 학부모 계정을 새로 발급했으면 그 자리에서 한 번 알려 준다. (다시 볼 수 없다) */
   const showIssuedParent = (res: any) => {
     if (!res?.parentPassword) return;
     alert(
       `학부모 계정이 발급되었습니다.\n\n` +
         `아이디  ${res.parentUsername}\n` +
         `비밀번호  ${res.parentPassword}\n\n` +
-        `비밀번호는 저장되지 않으므로 지금 적어 두세요. 잊으면 재발급해야 합니다.`
+        `비밀번호는 저장되지 않으므로 지금 학부모님께 전달해 주세요.\n` +
+        `잊으셨다면 이 화면에서 다시 발급하면 됩니다.`
     );
   };
 
