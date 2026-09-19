@@ -36,6 +36,11 @@ export async function PATCH(
     term.name = body.name;
   }
   if (typeof body.startDate === "string") term.startDate = body.startDate;
+  // 학년도 — 학기 사이에 학년을 몇 칸 올릴지 정하는 기준
+  if (body.year !== undefined) {
+    const year = Math.floor(Number(body.year));
+    term.year = Number.isFinite(year) && year > 1900 && year < 2200 ? year : 0;
+  }
   if (typeof body.endDate === "string") term.endDate = body.endDate;
   if (Array.isArray(body.subjects)) term.subjects = body.subjects;
   if (body.clinicDatesBySubject !== undefined) {

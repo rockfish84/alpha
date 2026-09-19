@@ -109,6 +109,8 @@ export interface TermInfo {
   grade?: string; // 학생 포털: 이 학기 내 학년
   startDate?: string;
   endDate?: string;
+  /** 학년도 (진급 계산 기준). 비우면 이름·시작일에서 읽는다 */
+  year?: number;
   order?: number;
   schoolExamResults?: SchoolExamResult[]; // 학생이 추가한 1학기 학교 과목별 성적
 }

@@ -43,8 +43,26 @@ export function serializeTerm(t: any) {
       t.closedSubjects,
       (t.subjects ?? []) as string[]
     ),
+    year: termYear(t),
     active: !!t.active,
     schoolExamInput: !!t.schoolExamInput,
     order: (t.order ?? 0) as number,
   };
+}
+
+/**
+ * 학년도를 고른다. 따로 지정하지 않았으면 이름이나 시작일에서 연도를 읽는다.
+ * (학년도가 같으면 진급 없음, 1년 차이면 한 학년 올림)
+ */
+export function termYear(t: {
+  year?: number | null;
+  name?: string;
+  startDate?: string;
+}): number {
+  if (t.year && t.year > 1900) return t.year;
+  const fromName = /(20\d{2})/.exec(t.name ?? "")?.[1];
+  if (fromName) return Number(fromName);
+  const fromDate = /(20\d{2})/.exec(t.startDate ?? "")?.[1];
+  if (fromDate) return Number(fromDate);
+  return new Date().getFullYear();
 }

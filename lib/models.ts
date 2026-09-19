@@ -20,6 +20,9 @@ const TermSchema = new Schema(
     typeOrderBySubject: { type: Map, of: [String], default: {} },
     // 학기 안에서 먼저 종료한 반. 종료된 반은 클리닉 현황·테스트/과제·학생 입력에서 숨긴다.
     closedSubjects: { type: [String], default: [] },
+    // 학년도. 학기 사이에 학년을 몇 칸 올릴지 계산하는 기준이다.
+    // (2026 2학기 → 2028 1학기 = 2년 → 두 학년 진급)
+    year: { type: Number, default: 0 },
     active: { type: Boolean, default: false }, // 진행 중인 학기 (여러 학기 동시 진행 가능)
     schoolExamInput: { type: Boolean, default: false }, // 학생 1학기 학교 성적 입력 기능
     order: { type: Number, default: 0 }, // 정렬용 (클수록 최신)

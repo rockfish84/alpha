@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 import { dbConnect } from "@/lib/db";
-import { Term, Enrollment } from "@/lib/models";
+import { Term, Enrollment, Student } from "@/lib/models";
 import { requireAdmin } from "@/lib/auth";
-import { serializeTerm } from "@/lib/term";
+import { serializeTerm, termYear } from "@/lib/term";
 import {
   mergeClinicDates,
   normalizeClinicDates,
   normalizeClinicDatesBySubject,
 } from "@/lib/clinic-dates";
 import { normalizeClosedSubjects } from "@/lib/subject-status";
+import { advanceGrade } from "@/lib/grade";
 
 export const dynamic = "force-dynamic";
 
@@ -67,8 +68,10 @@ export async function POST(req: Request) {
   const maxOrder = await Term.findOne().sort({ order: -1 }).lean();
   const order = (maxOrder?.order ?? 0) + 1;
 
+  const rawYear = Math.floor(Number(body.year));
   const term = await Term.create({
     name,
+    year: Number.isFinite(rawYear) && rawYear > 1900 && rawYear < 2200 ? rawYear : 0,
     startDate: startDate ?? "",
     endDate: endDate ?? "",
     subjects,
@@ -81,17 +84,47 @@ export async function POST(req: Request) {
     active: !!activate,
   });
 
-  // 이전 학기 명단 복사
+  // 이전 학기 명단 복사. 체크박스가 아니라 학년도 차이만큼 자동 진급한다.
+  const promotionYears = source
+    ? Math.max(0, termYear(term.toObject()) - termYear(source))
+    : 0;
+  let copied = 0;
+  let graduated: string[] = [];
   if (copyRoster && source) {
     const prev = await Enrollment.find({ term: source._id }).lean();
+    const graduatedIds: unknown[] = [];
     for (const e of prev) {
+      // 퇴원 이력은 상태와 당시 학년을 그대로 복사한다. 돌아오면 '학생 데려오기'에서
+      // 학년도 차이에 맞춰 올린 학년으로 재등록할 수 있다.
+      const grade =
+        e.status === "재원" ? advanceGrade(e.grade, promotionYears) : String(e.grade ?? "");
+      if (e.status === "재원" && grade === null) {
+        graduatedIds.push(e.student);
+        continue;
+      }
       await Enrollment.updateOne(
         { term: term._id, student: e.student },
-        { $setOnInsert: { grade: e.grade, subjects: e.subjects, status: e.status } },
+        {
+          $setOnInsert: {
+            grade,
+            subjects: e.subjects,
+            status: e.status,
+          },
+        },
         { upsert: true }
       );
+      copied += 1;
+    }
+    if (graduatedIds.length) {
+      const list = await Student.find({ _id: { $in: graduatedIds } })
+        .select({ name: 1 })
+        .lean();
+      graduated = list.map((s) => s.name as string);
     }
   }
 
-  return NextResponse.json(serializeTerm(term.toObject()), { status: 201 });
+  return NextResponse.json(
+    { ...serializeTerm(term.toObject()), copied, graduated, promotionYears },
+    { status: 201 }
+  );
 }

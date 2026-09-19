@@ -66,3 +66,28 @@ export function getClinicDatesForSubject(
 export function mergeClinicDates(bySubject: ClinicDatesBySubject): string[] {
   return normalizeClinicDates(Object.values(bySubject).flat());
 }
+
+/** 한 번에 만들 수 있는 최대 일수 (실수로 몇 년치를 만들지 않도록) */
+const MAX_RANGE_DAYS = 400;
+
+/**
+ * 기간 안에서 고른 요일에 해당하는 날짜를 모두 만든다. (0=일 … 6=토)
+ * 클리닉은 보통 매주 같은 요일이라, 날짜를 하나씩 넣는 대신 이걸로 한 번에 넣는다.
+ */
+export function datesInRange(
+  from: string,
+  to: string,
+  days: Iterable<number>
+): string[] {
+  const wanted = new Set([...days].filter((d) => Number.isInteger(d) && d >= 0 && d <= 6));
+  if (!isClinicDate(from) || !isClinicDate(to) || !wanted.size || from > to) return [];
+
+  const out: string[] = [];
+  const cur = new Date(`${from}T00:00:00.000Z`);
+  const end = new Date(`${to}T00:00:00.000Z`);
+  for (let i = 0; cur <= end && i < MAX_RANGE_DAYS; i++) {
+    if (wanted.has(cur.getUTCDay())) out.push(cur.toISOString().slice(0, 10));
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return out;
+}

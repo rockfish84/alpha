@@ -40,6 +40,27 @@ export async function PATCH(
     student.name = body.name;
     stuChanged = true;
   }
+  // 아이디 변경 (전학·오타 정정용). 로그인 열쇠가 바뀌므로 학생에게 알려야 한다.
+  if (typeof body.username === "string" && body.username.trim()) {
+    const username = body.username.trim();
+    if (username !== student.username) {
+      if (username.length < 2 || username.length > 40) {
+        return NextResponse.json(
+          { error: "아이디는 2~40자여야 합니다." },
+          { status: 400 }
+        );
+      }
+      const dup = await Student.exists({ username, _id: { $ne: student._id } });
+      if (dup) {
+        return NextResponse.json(
+          { error: `"${username}" 아이디를 이미 쓰고 있습니다.` },
+          { status: 409 }
+        );
+      }
+      student.username = username;
+      stuChanged = true;
+    }
+  }
   if (typeof body.school === "string") {
     student.school = body.school;
     stuChanged = true;

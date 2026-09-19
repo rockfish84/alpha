@@ -20,6 +20,7 @@ import {
   Link2 as LinkIcon,
   KeyRound,
   Copy,
+  Upload,
 } from "lucide-react";
 import {
   T,
@@ -32,7 +33,9 @@ import {
   type TermInfo,
 } from "@/lib/constants";
 import { api } from "@/lib/api";
-import { getClinicDatesForSubject } from "@/lib/clinic-dates";
+import { parseRoster } from "@/lib/roster-excel";
+import type { ImportRecord } from "@/lib/roster-import";
+import { datesInRange, getClinicDatesForSubject } from "@/lib/clinic-dates";
 import {
   normalizeClosedSubjects,
   visibleSubjects,
@@ -1483,7 +1486,10 @@ function StudentForm({
       </Field>
       <div style={{ display: "flex", gap: 12 }}>
         <div style={{ flex: 1 }}>
-          <Field label="아이디">
+          <Field
+            label="아이디"
+            hint={isEdit ? "바꾸면 학생에게 알려주세요" : undefined}
+          >
             <input
               style={inputBase}
               value={f.username ?? ""}
@@ -2057,25 +2063,374 @@ function AdminParentNotice({ students }: { students: Student[] }) {
   );
 }
 
+type RosterImportPreviewRow = {
+  key: string;
+  kind: "existing" | "new" | "error";
+  name: string;
+  phone: string;
+  school: string;
+  grade: string;
+  subjects: string[];
+  username: string;
+  alreadyEnrolled: boolean;
+  currentSubjects: string[];
+  sources: string[];
+  notes: string[];
+};
+
+type RosterImportPreview = {
+  rows: RosterImportPreviewRow[];
+  errors: { source: string; reason: string }[];
+  summary: {
+    total: number;
+    existing: number;
+    newStudents: number;
+    alreadyEnrolled: number;
+    errors: number;
+  };
+};
+
+function RosterExcelImport({
+  open,
+  onClose,
+  termId,
+  onImported,
+}: {
+  open: boolean;
+  onClose: () => void;
+  termId: string;
+  onImported: () => Promise<void>;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [fileName, setFileName] = useState("");
+  const [records, setRecords] = useState<ImportRecord[]>([]);
+  const [parseErrors, setParseErrors] = useState<{ source: string; reason: string }[]>([]);
+  const [preview, setPreview] = useState<RosterImportPreview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState<null | {
+    createdStudents: number;
+    newEnrollments: number;
+    updatedEnrollments: number;
+    skipped: number;
+  }>(null);
+
+  const chooseFile = async (file: File) => {
+    setFileName(file.name);
+    setRecords([]);
+    setParseErrors([]);
+    setPreview(null);
+    setDone(null);
+    setError("");
+    setBusy(true);
+    try {
+      const xlsx = await import("xlsx");
+      const workbook = xlsx.read(await file.arrayBuffer(), { type: "array" });
+      const nextRecords: ImportRecord[] = [];
+      const nextErrors: { source: string; reason: string }[] = [];
+
+      for (const sheetName of workbook.SheetNames) {
+        const rows = xlsx.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], {
+          header: 1,
+          defval: "",
+          raw: false,
+        });
+        // 완전히 빈 시트는 오류로 세지 않는다.
+        if (!rows.some((row) => row.some((cell) => String(cell ?? "").trim()))) continue;
+        const parsed = parseRoster(rows);
+        nextRecords.push(
+          ...parsed.records.map((record) => ({ ...record, sheet: sheetName }))
+        );
+        nextErrors.push(
+          ...parsed.errors.map((item) => ({
+            source: `${sheetName}${item.line ? ` ${item.line}행` : ""}`,
+            reason: [item.raw, item.reason].filter(Boolean).join(" — "),
+          }))
+        );
+      }
+
+      if (!nextRecords.length) {
+        setParseErrors(nextErrors);
+        throw new Error("반영할 학생을 읽지 못했습니다. 머리행과 학부모 번호를 확인해 주세요.");
+      }
+      setRecords(nextRecords);
+      setParseErrors(nextErrors);
+      const result: RosterImportPreview = await api.post("/api/admin/roster/import", {
+        term: termId,
+        records: nextRecords,
+        commit: false,
+      });
+      setPreview(result);
+    } catch (e: any) {
+      setError(e.message || "엑셀 파일을 읽지 못했습니다.");
+    } finally {
+      setBusy(false);
+      // 같은 파일을 다시 골라도 change 이벤트가 나도록 비운다.
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
+
+  const commit = async () => {
+    if (!preview || !records.length || busy) return;
+    const valid = preview.summary.existing + preview.summary.newStudents;
+    if (
+      !window.confirm(
+        `${valid}명을 현재 학기에 반영할까요?\n기존 학생은 계정을 유지하고 수강반만 추가됩니다.`
+      )
+    ) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.post("/api/admin/roster/import", {
+        term: termId,
+        records,
+        commit: true,
+      });
+      setDone({ ...result, skipped: Number(result.skipped ?? 0) + parseErrors.length });
+      await onImported();
+    } catch (e: any) {
+      setError(e.message || "명단 반영에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const allErrors = [
+    ...parseErrors,
+    ...(preview?.errors ?? []),
+    ...(preview?.rows
+      .filter((row) => row.kind === "error")
+      .map((row) => ({ source: row.sources.join(", "), reason: row.notes.join(" · ") })) ?? []),
+  ];
+  const validCount = preview
+    ? preview.summary.existing + preview.summary.newStudents
+    : 0;
+
+  return (
+    <Modal open={open} onClose={busy ? () => {} : onClose} title="엑셀 명단 가져오기" width={940}>
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".xlsx,.xls"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void chooseFile(file);
+        }}
+      />
+
+      {!done ? (
+        <>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ color: T.sub, fontSize: 13.5, lineHeight: 1.6 }}>
+              머리행과 반명 위치를 자동으로 찾습니다. 실제 반영 전 기존·신규·오류를 먼저 보여 줍니다.
+              {fileName && <div style={{ color: T.ink, fontWeight: 700 }}>{fileName}</div>}
+            </div>
+            <Btn variant="outline" disabled={busy} onClick={() => inputRef.current?.click()}>
+              <Upload size={16} /> {preview ? "다른 파일 선택" : "엑셀 파일 선택"}
+            </Btn>
+          </div>
+
+          {busy && !preview && (
+            <div style={{ padding: "32px 0", textAlign: "center", color: T.muted }}>
+              파일을 읽고 기존 학생과 대조하는 중…
+            </div>
+          )}
+          {error && (
+            <div
+              style={{
+                color: T.bad,
+                background: T.badSoft,
+                borderRadius: 10,
+                padding: "10px 12px",
+                marginBottom: 14,
+                fontSize: 13.5,
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          {preview && (
+            <>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+                <Pill tone="primary">읽은 학생 {preview.summary.total}명</Pill>
+                <Pill tone="ok">기존 계정 {preview.summary.existing}명</Pill>
+                <Pill tone="primary">신규 계정 {preview.summary.newStudents}명</Pill>
+                <Pill tone={allErrors.length ? "warn" : "muted"}>오류 {allErrors.length}건</Pill>
+              </div>
+
+              <div
+                style={{
+                  overflow: "auto",
+                  maxHeight: 430,
+                  border: `1px solid ${T.line}`,
+                  borderRadius: 12,
+                }}
+              >
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820, fontSize: 13 }}>
+                  <thead style={{ position: "sticky", top: 0, zIndex: 1 }}>
+                    <tr style={{ background: "#F6F8FB" }}>
+                      {["구분", "이름", "학교·학년", "학부모 번호", "반", "아이디", "확인"].map((head) => (
+                        <th
+                          key={head}
+                          style={{
+                            textAlign: "left",
+                            padding: "9px 10px",
+                            borderBottom: `1px solid ${T.line}`,
+                            color: T.sub,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {head}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.rows.map((row) => (
+                      <tr key={row.key} style={{ borderBottom: `1px solid ${T.line}` }}>
+                        <td style={{ padding: "9px 10px", whiteSpace: "nowrap" }}>
+                          <Pill tone={row.kind === "error" ? "bad" : row.kind === "existing" ? "ok" : "primary"}>
+                            {row.kind === "error" ? "확인 필요" : row.kind === "existing" ? "기존" : "신규"}
+                          </Pill>
+                        </td>
+                        <td style={{ padding: "9px 10px", fontWeight: 750 }}>{row.name}</td>
+                        <td style={{ padding: "9px 10px", color: T.sub, whiteSpace: "nowrap" }}>
+                          {row.school || "—"} {row.grade && `· ${row.grade}`}
+                        </td>
+                        <td style={{ padding: "9px 10px", color: T.sub, fontFamily: "monospace" }}>
+                          {row.phone}
+                        </td>
+                        <td style={{ padding: "9px 10px", color: T.sub }}>
+                          {row.subjects.join(", ")}
+                        </td>
+                        <td style={{ padding: "9px 10px", color: T.sub, whiteSpace: "nowrap" }}>
+                          {row.username || "—"}
+                        </td>
+                        <td style={{ padding: "9px 10px", color: T.sub, maxWidth: 220 }}>
+                          {row.kind === "existing"
+                            ? row.alreadyEnrolled
+                              ? "현재 학기 반 추가"
+                              : "현재 학기 등록"
+                            : row.notes.join(" · ") || "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {!!allErrors.length && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: "10px 12px",
+                    background: T.warnSoft,
+                    color: T.warn,
+                    borderRadius: 10,
+                    fontSize: 12.5,
+                    lineHeight: 1.6,
+                    maxHeight: 120,
+                    overflow: "auto",
+                  }}
+                >
+                  <b>반영하지 않는 항목</b>
+                  {allErrors.map((item, index) => (
+                    <div key={`${item.source}-${index}`}>• {item.source}: {item.reason}</div>
+                  ))}
+                </div>
+              )}
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  alignItems: "center",
+                  marginTop: 16,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span style={{ fontSize: 12.5, color: T.sub }}>
+                  기존 계정 정보는 바꾸지 않습니다. 새 반명은 이 학기 반 목록에도 추가됩니다.
+                </span>
+                <Btn disabled={busy || validCount === 0} onClick={commit}>
+                  <Save size={16} /> {busy ? "반영 중…" : `${validCount}명 확정 반영`}
+                </Btn>
+              </div>
+            </>
+          )}
+        </>
+      ) : (
+        <div style={{ textAlign: "center", padding: "18px 0 6px" }}>
+          <div style={{ fontSize: 20, fontWeight: 850, color: T.ink, marginBottom: 10 }}>
+            명단 반영을 마쳤습니다
+          </div>
+          <div style={{ color: T.sub, lineHeight: 1.8, marginBottom: 18 }}>
+            신규 계정 {done.createdStudents}명 · 새 학기 등록 {done.newEnrollments}명 · 기존 등록 반 추가 {done.updatedEnrollments}명
+            {!!done.skipped && <div>오류 {done.skipped}건은 반영하지 않았습니다.</div>}
+          </div>
+          <Btn onClick={onClose}>확인</Btn>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function AdminStudents({
+  termId,
   students,
   subjects,
   closedSubjects,
   onAddStudent,
   onUpdateStudent,
   onDeleteStudent,
+  onImported,
 }: {
+  termId: string;
   students: Student[];
   subjects: string[];
   closedSubjects?: string[];
   onAddStudent: (v: EditStudent) => void;
   onUpdateStudent: (id: string, patch: EditStudent) => void;
   onDeleteStudent: (id: string) => void;
+  onImported: () => Promise<void>;
 }) {
   const [q, setQ] = useState("");
   const [sortBy, setSortBy] = useState<"name" | "subject">("name");
   const [subjectFilter, setSubjectFilter] = useState<string>("전체");
   const [editing, setEditing] = useState<EditStudent | null>(null);
+  // 학교·전화번호 일괄 편집 (신학기·전학 정리용)
+  const [bulk, setBulk] = useState(false);
+  const [draft, setDraft] = useState<Record<string, { school?: string; phone?: string }>>({});
+  const [saving, setSaving] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+
+  const changed = Object.entries(draft).filter(([, v]) => v.school != null || v.phone != null);
+
+  const saveBulk = async () => {
+    if (!changed.length || saving) return;
+    setSaving(true);
+    try {
+      for (const [enrollmentId, patch] of changed) {
+        await onUpdateStudent(enrollmentId, patch as EditStudent);
+      }
+      setDraft({});
+      setBulk(false);
+    } finally {
+      setSaving(false);
+    }
+  };
   const list = students
     .filter(
       (s) =>
@@ -2131,6 +2486,13 @@ function AdminStudents({
             />
           </div>
           <Btn
+            variant="outline"
+            onClick={() => setImportOpen(true)}
+          >
+            <Upload size={16} />
+            엑셀 명단
+          </Btn>
+          <Btn
             onClick={() =>
               setEditing({
                 name: "",
@@ -2146,6 +2508,39 @@ function AdminStudents({
             학생 추가
           </Btn>
         </div>
+      </div>
+
+      {/* 학교·전화번호를 표에서 바로 고치는 모드 (신학기·전학 정리용) */}
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+          flexWrap: "wrap",
+          marginBottom: 10,
+        }}
+      >
+        <Btn
+          variant={bulk ? "primary" : "outline"}
+          size="sm"
+          onClick={() => {
+            setBulk((v) => !v);
+            setDraft({});
+          }}
+          title="학교·전화번호를 표에서 바로 고칩니다 (신학기·전학 정리용)"
+        >
+          <Pencil size={14} /> {bulk ? "일괄 편집 끄기" : "학교·번호 일괄 편집"}
+        </Btn>
+        {bulk && (
+          <>
+            <Btn size="sm" disabled={!changed.length || saving} onClick={saveBulk}>
+              <Save size={14} /> {saving ? "저장 중…" : `${changed.length}건 저장`}
+            </Btn>
+            <span style={{ fontSize: 12.5, color: T.sub }}>
+              고친 칸만 저장됩니다. 저장 전에는 반영되지 않습니다.
+            </span>
+          </>
+        )}
       </div>
 
       {/* 과목별 필터: 누르면 그 과목 학생만 가나다순 */}
@@ -2248,12 +2643,30 @@ function AdminStudents({
                   </td>
                   <td
                     style={{
-                      padding: "11px 14px",
+                      padding: bulk ? "5px 8px" : "11px 14px",
                       color: T.sub,
                       fontFamily: "monospace",
                     }}
                   >
-                    {s.phone || "—"}
+                    {bulk && s.enrollmentId ? (
+                      <input
+                        style={{ ...inputBase, width: 132, padding: "6px 8px", fontSize: 13 }}
+                        inputMode="numeric"
+                        placeholder="01012345678"
+                        defaultValue={s.phone ?? ""}
+                        onChange={(e) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            [s.enrollmentId!]: {
+                              ...prev[s.enrollmentId!],
+                              phone: e.target.value.trim(),
+                            },
+                          }))
+                        }
+                      />
+                    ) : (
+                      s.phone || "—"
+                    )}
                   </td>
                   <td
                     style={{
@@ -2271,8 +2684,31 @@ function AdminStudents({
                       </div>
                     )}
                   </td>
-                  <td style={{ padding: "11px 14px", color: T.sub, whiteSpace: "nowrap" }}>
-                    {s.school || "—"}
+                  <td
+                    style={{
+                      padding: bulk ? "5px 8px" : "11px 14px",
+                      color: T.sub,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {bulk && s.enrollmentId ? (
+                      <input
+                        style={{ ...inputBase, width: 116, padding: "6px 8px", fontSize: 13 }}
+                        placeholder="예: 둔산여고"
+                        defaultValue={s.school ?? ""}
+                        onChange={(e) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            [s.enrollmentId!]: {
+                              ...prev[s.enrollmentId!],
+                              school: e.target.value.trim(),
+                            },
+                          }))
+                        }
+                      />
+                    ) : (
+                      s.school || "—"
+                    )}
                   </td>
                   <td style={{ padding: "11px 14px", color: T.sub }}>
                     {s.grade}
@@ -2346,6 +2782,13 @@ function AdminStudents({
           />
         )}
       </Modal>
+
+      <RosterExcelImport
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        termId={termId}
+        onImported={onImported}
+      />
     </div>
   );
 }
@@ -2442,6 +2885,7 @@ function AdminSchoolExams({
         학생이 <b>1학기 성적 입력</b> 탭에서 저장한 학교 과목명·중간·기말·등급을
         조회합니다. 한 학생이 입력한 여러 학교 과목은 각각 별도 행으로 표시됩니다.
       </Card>
+
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
         {examSubjects.map((examSubject) => {
@@ -3566,22 +4010,369 @@ function AdminWeekly({
 
 /* ============================== PORTAL ============================== */
 /* ============================== TERMS (학기 관리) ============================== */
+/* ============================== 학기 이월 (지난 학기에서 데려오기) ============================== */
+/**
+ * 새 학기는 반을 새로 짠다. 그래서 명단을 통째로 복사하는 대신
+ * "지난 반 → 새 반" 으로 옮기고, 이어 듣지 않는 학생은 빼고 데려온다.
+ */
+interface RolloverRow {
+  studentId: string;
+  name: string;
+  school: string;
+  fromSubjects: string[];
+  grade: string;
+  nextGrade: string;
+  graduating: boolean;
+  /** 지난 학기에 퇴원한 학생 (돌아오는 경우) */
+  left: boolean;
+  already: boolean;
+}
+
+function RolloverModal({
+  open,
+  target,
+  terms,
+  onClose,
+  onDone,
+}: {
+  open: boolean;
+  target: TermInfo | null;
+  terms: TermInfo[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [from, setFrom] = useState("");
+  const [rows, setRows] = useState<RolloverRow[]>([]);
+  const [sourceSubjects, setSourceSubjects] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  /** 학년도 차이 = 올릴 학년 수 (서버가 계산해 준다) */
+  const [years, setYears] = useState(0);
+  /** 지난 학기 퇴원 학생도 후보로 볼지 */
+  const [withLeft, setWithLeft] = useState(false);
+  /** 지난 반 → 새 반 (비우면 그 반은 안 데려옴) */
+  const [map, setMap] = useState<Record<string, string>>({});
+  /** 개별로 뺀 학생 */
+  const [skip, setSkip] = useState<Set<string>>(new Set());
+
+  const candidates = useMemo(
+    () => terms.filter((t) => t.id !== target?.id),
+    [terms, target]
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    setRows([]);
+    setMap({});
+    setSkip(new Set());
+    setFrom(candidates[0]?.id ?? "");
+  }, [open, candidates]);
+
+  useEffect(() => {
+    if (!open || !target || !from) return;
+    let cancelled = false;
+    setLoading(true);
+    api
+      .get(`/api/admin/terms/${target.id}/rollover?from=${from}`)
+      .then((d) => {
+        if (cancelled) return;
+        setRows(d.rows ?? []);
+        setYears(d.years ?? 0);
+        setSourceSubjects(d.source?.subjects ?? []);
+        setMap({});
+        setSkip(new Set());
+      })
+      .catch((e) => !cancelled && alert(e?.message || "불러오지 못했습니다."))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [open, target, from]);
+
+  /** 이 학생이 새로 들을 반 (지난 반들의 매핑 결과) */
+  const targetsOf = (row: RolloverRow) => [
+    ...new Set(row.fromSubjects.map((s) => map[s]).filter(Boolean)),
+  ];
+
+  // 반을 이어 준 학생만 아래 목록에 올린다 (안 데려올 학생까지 다 보이면 고르기 번거롭다)
+  // 퇴원 학생은 따로 켜야 보인다 — 돌아오는 학생만 골라 담는 자리다.
+  const visible = rows.filter(
+    (r) => targetsOf(r).length > 0 && (withLeft || !r.left)
+  );
+  // 지난 학기 퇴원생 수 (반을 잇기 전에도 기능이 있다는 걸 알 수 있게 항상 센다)
+  const leftCount = rows.filter((r) => r.left).length;
+  // 퇴원했던 학생은 실수로 끌려오지 않도록 기본으로 빼 둔다 (직접 체크해야 담긴다)
+  const picked = visible.filter(
+    (r) =>
+      !r.already &&
+      !r.graduating &&
+      (r.left ? skip.has(r.studentId) : !skip.has(r.studentId))
+  );
+
+  const submit = async () => {
+    if (!target || !picked.length || saving) return;
+    setSaving(true);
+    try {
+      const res = await api.post(`/api/admin/terms/${target.id}/rollover`, {
+        assignments: picked.map((r) => ({
+          studentId: r.studentId,
+          grade: years > 0 ? r.nextGrade : r.grade,
+          subjects: targetsOf(r),
+        })),
+      });
+      alert(
+        `${target.name} 학기로 ${res.total}명을 데려왔습니다.\n` +
+          `새로 등록 ${res.created}명 · 반 추가 ${res.updated}명`
+      );
+      onDone();
+      onClose();
+    } catch (e: any) {
+      alert(e?.message || "이월에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!target) return null;
+
+  return (
+    <Modal open={open} onClose={onClose} title={`${target.name} — 지난 학기에서 데려오기`} width={900}>
+      <div style={{ fontSize: 13, color: T.sub, lineHeight: 1.65, marginBottom: 12 }}>
+        새 학기는 반을 새로 짭니다. <b>지난 반을 새 반으로 이어 주면</b> 그 반 학생들이 목록에
+        올라오고, 계속 듣지 않는 학생만 빼면 됩니다. 여기서 고른 학생만 등록됩니다.
+        <br />
+        학년은 <b>학년도 차이만큼</b> 올라갑니다 — 2년 만에 돌아온 학생은 두 학년 올라갑니다.
+      </div>
+
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginBottom: 12, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 220 }}>
+          <div style={lbl}>어느 학기에서</div>
+          <select style={inputBase} value={from} onChange={(e) => setFrom(e.target.value)}>
+            {candidates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div
+          style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, color: T.sub }}
+        >
+          {years > 0 ? (
+            <>
+              학년 <b>{years}칸 자동 진급</b>
+              <span style={{ color: T.muted }}> (학년도 차이)</span>
+            </>
+          ) : (
+            <span style={{ color: T.muted }}>같은 학년도라 진급 없음</span>
+          )}
+        </div>
+        {rows.some((r) => r.left) && (
+          <label
+            style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, color: T.sub, cursor: "pointer" }}
+          >
+            <input
+              type="checkbox"
+              checked={withLeft}
+              onChange={(e) => setWithLeft(e.target.checked)}
+            />
+            <span>
+              퇴원 학생도 보기 <b>{leftCount}명</b>
+              <span style={{ color: T.muted }}> · 돌아온 학생 찾기</span>
+            </span>
+          </label>
+        )}
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 24, color: T.muted }}>불러오는 중…</div>
+      ) : (
+        <>
+          <div style={{ fontWeight: 800, color: T.ink, marginBottom: 8 }}>1. 반 잇기</div>
+          <Card style={{ padding: 12, marginBottom: 16 }}>
+            {sourceSubjects.length === 0 && (
+              <div style={{ color: T.muted, fontSize: 13 }}>이전 학기에 반이 없습니다.</div>
+            )}
+            {sourceSubjects.map((sub) => {
+              const n = rows.filter(
+                (r) => !r.already && !r.graduating && r.fromSubjects.includes(sub)
+              ).length;
+              return (
+                <div
+                  key={sub}
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0", flexWrap: "wrap" }}
+                >
+                  <span style={{ minWidth: 190, fontSize: 13.5, fontWeight: 700, color: T.ink }}>
+                    {sub}
+                    <span style={{ color: T.muted, fontWeight: 500 }}> · {n}명</span>
+                  </span>
+                  <span style={{ color: T.muted }}>→</span>
+                  <select
+                    style={{ ...inputBase, width: 220, padding: "7px 10px", fontSize: 13.5 }}
+                    value={map[sub] ?? ""}
+                    onChange={(e) => setMap((prev) => ({ ...prev, [sub]: e.target.value }))}
+                  >
+                    <option value="">안 데려옴</option>
+                    {target.subjects.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+          </Card>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <span style={{ fontWeight: 800, color: T.ink }}>2. 데려올 학생</span>
+            <Pill tone="primary">{picked.length}명</Pill>
+            <div style={{ flex: 1 }} />
+            <Btn size="sm" variant="outline" onClick={() => setSkip(new Set())}>
+              뺀 학생 되돌리기
+            </Btn>
+          </div>
+
+          <Card style={{ overflow: "hidden", marginBottom: 14 }}>
+            <div style={{ maxHeight: 320, overflowY: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
+                <thead>
+                  <tr style={{ background: "#F6F8FB" }}>
+                    {["", "학생", "지난 반", "학년", "새 반"].map((h, i) => (
+                      <th
+                        key={i}
+                        style={{
+                          textAlign: "left",
+                          padding: "9px 12px",
+                          fontSize: 12,
+                          color: T.sub,
+                          position: "sticky",
+                          top: 0,
+                          background: "#F6F8FB",
+                        }}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((r) => {
+                    const to = targetsOf(r);
+                    const on =
+                      !r.already &&
+                      !r.graduating &&
+                      (r.left ? skip.has(r.studentId) : !skip.has(r.studentId));
+                    return (
+                      <tr
+                        key={r.studentId}
+                        style={{
+                          borderBottom: `1px solid ${T.line}`,
+                          opacity: r.already ? 0.45 : 1,
+                          background: on ? T.primarySoft : undefined,
+                        }}
+                      >
+                        <td style={{ padding: "8px 12px", width: 34 }}>
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            disabled={r.already || r.graduating}
+                            onChange={() =>
+                              setSkip((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(r.studentId)) next.delete(r.studentId);
+                                else next.add(r.studentId);
+                                return next;
+                              })
+                            }
+                          />
+                        </td>
+                        <td style={{ padding: "8px 12px", fontWeight: 700, whiteSpace: "nowrap" }}>
+                          {r.name}
+                          <span style={{ color: T.muted, fontWeight: 500, fontSize: 12 }}>
+                            {r.school ? ` · ${r.school}` : ""}
+                          </span>
+                          {r.left && <Pill tone="warn">퇴원</Pill>}
+                          {r.already && <Pill tone="muted">이미 등록됨</Pill>}
+                        </td>
+                        <td style={{ padding: "8px 12px", color: T.sub }}>
+                          {r.fromSubjects.join(", ") || "—"}
+                        </td>
+                        <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                          {years > 0 ? (
+                            r.graduating ? (
+                              <span style={{ color: T.bad, fontWeight: 700 }}>졸업</span>
+                            ) : (
+                              <>
+                                <span style={{ color: T.muted }}>{r.grade}</span>
+                                <span style={{ color: T.muted }}> → </span>
+                                <b>{r.nextGrade}</b>
+                              </>
+                            )
+                          ) : (
+                            r.grade || "—"
+                          )}
+                        </td>
+                        <td style={{ padding: "8px 12px", color: T.primary }}>
+                          {to.join(", ")}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {!visible.length && (
+                <div
+                  style={{
+                    padding: "26px 16px",
+                    textAlign: "center",
+                    color: T.muted,
+                    fontSize: 13.5,
+                    lineHeight: 1.6,
+                  }}
+                >
+                  위 <b>반 잇기</b>에서 지난 반을 새 반으로 이어 주면
+                  <br />그 반 학생들이 여기에 나타납니다.
+                </div>
+              )}
+            </div>
+          </Card>
+
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <Btn variant="outline" onClick={onClose}>
+              취소
+            </Btn>
+            <Btn onClick={submit} disabled={!picked.length || saving}>
+              <Save size={15} /> {saving ? "데려오는 중…" : `${picked.length}명 데려오기`}
+            </Btn>
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
 function AdminTerms({
   terms,
   onCreate,
   onUpdate,
   onDelete,
+  onRolledOver,
 }: {
   terms: TermInfo[];
   onCreate: (body: any) => Promise<void>;
   onUpdate: (id: string, patch: any) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  /** 학생을 데려온 뒤 명단을 다시 읽는다 */
+  onRolledOver: () => void;
 }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [copyFrom, setCopyFrom] = useState("");
   const [copyRoster, setCopyRoster] = useState(true);
   const [editing, setEditing] = useState<TermInfo | null>(null);
+  // 지난 학기에서 학생 데려오기 (반을 새로 짠 학기용)
+  const [rollover, setRollover] = useState<TermInfo | null>(null);
 
   const submitNew = async () => {
     if (!name.trim()) return;
@@ -3658,6 +4449,22 @@ function AdminTerms({
               반·클리닉날짜와 <b>명단까지</b> 복사 (해제 시 반·날짜만)
             </label>
           )}
+          {copyFrom && copyRoster && (
+            <div
+              style={{
+                fontSize: 13,
+                color: T.sub,
+                background: "#F6F8FB",
+                borderRadius: 10,
+                padding: "9px 11px",
+                marginBottom: 14,
+                lineHeight: 1.55,
+              }}
+            >
+              학년은 두 학기의 <b>학년도 차이만큼 자동 진급</b>합니다. 같은 학년도면 그대로이며,
+              고3을 넘는 학생은 졸업으로 보고 명단에서 빠집니다.
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8 }}>
             <Btn onClick={submitNew} disabled={!name.trim()}>
               <Save size={16} />
@@ -3709,6 +4516,15 @@ function AdminTerms({
               >
                 {t.active ? "진행 종료" : "진행 시작"}
               </Btn>
+              <Btn
+                size="sm"
+                variant="outline"
+                onClick={() => setRollover(t)}
+                title="지난 학기 학생을 새 반으로 옮겨 담습니다"
+                disabled={!t.subjects.length}
+              >
+                <Users size={14} />학생 데려오기
+              </Btn>
               <Btn size="sm" variant="outline" onClick={() => setEditing(t)}>
                 <Pencil size={14} />설정
               </Btn>
@@ -3744,6 +4560,14 @@ function AdminTerms({
           />
         )}
       </Modal>
+
+      <RolloverModal
+        open={!!rollover}
+        target={rollover}
+        terms={terms}
+        onClose={() => setRollover(null)}
+        onDone={onRolledOver}
+      />
     </div>
   );
 }
@@ -3786,10 +4610,16 @@ function TermSettingsForm({
   onSubmit: (patch: any) => Promise<void>;
 }) {
   const [name, setName] = useState(term.name);
+  // 학년도 — 학기 사이에 학년을 몇 칸 올릴지 정하는 기준
+  const [year, setYear] = useState(String(term.year ?? ""));
   // 반 목록 · 반별 클리닉 날짜 · 반별 진행/종료를 한 화면에서 관리한다.
   const [rows, setRows] = useState<SubjectRow[]>(() => buildSubjectRows(term));
   const [newSubject, setNewSubject] = useState("");
   const [dateDraft, setDateDraft] = useState<Record<string, string>>({});
+  // 기간 + 요일로 한 번에 넣기 (클리닉은 보통 매주 같은 요일이라 하나씩 넣으면 번거롭다)
+  const [bulkFrom, setBulkFrom] = useState<Record<string, string>>({});
+  const [bulkTo, setBulkTo] = useState<Record<string, string>>({});
+  const [bulkDays, setBulkDays] = useState<Record<string, Set<number>>>({});
   const [saving, setSaving] = useState(false);
 
   const patchRow = (subject: string, patch: Partial<SubjectRow>) =>
@@ -3802,6 +4632,22 @@ function TermSettingsForm({
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || row.dates.includes(d)) return;
     patchRow(row.subject, { dates: [...row.dates, d].sort() });
     setDateDraft((p) => ({ ...p, [row.subject]: "" }));
+  };
+
+  /** 이 반에 지금 설정으로 새로 들어갈 날짜 (이미 있는 날짜는 뺀다) */
+  const bulkPreview = (row: SubjectRow): string[] => {
+    const made = datesInRange(
+      bulkFrom[row.subject] ?? "",
+      bulkTo[row.subject] ?? "",
+      bulkDays[row.subject] ?? new Set()
+    );
+    return made.filter((d) => !row.dates.includes(d));
+  };
+
+  const addBulk = (row: SubjectRow) => {
+    const add = bulkPreview(row);
+    if (!add.length) return;
+    patchRow(row.subject, { dates: [...row.dates, ...add].sort() });
   };
 
   const addSubject = () => {
@@ -3826,6 +4672,8 @@ function TermSettingsForm({
     try {
       const patch: Record<string, unknown> = {
         name,
+        // 비워 두면 이름·시작일에서 연도를 읽는다
+        year: year.trim() ? Number(year.trim()) : 0,
         subjects: rows.map((r) => r.subject),
         closedSubjects: rows.filter((r) => r.closed).map((r) => r.subject),
       };
@@ -3845,13 +4693,28 @@ function TermSettingsForm({
 
   return (
     <div>
-      <Field label="학기 이름">
-        <input
-          style={inputBase}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-      </Field>
+      <div style={{ display: "flex", gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <Field label="학기 이름">
+            <input
+              style={inputBase}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </Field>
+        </div>
+        <div style={{ width: 150 }}>
+          <Field label="학년도" hint="진급 계산 기준">
+            <input
+              style={inputBase}
+              inputMode="numeric"
+              value={year}
+              placeholder="예: 2026"
+              onChange={(e) => setYear(e.target.value)}
+            />
+          </Field>
+        </div>
+      </div>
 
       <Field
         label={`반별 진행 상태 · 클리닉 날짜 (진행 ${openCnt} · 종료 ${
@@ -3926,6 +4789,81 @@ function TermSettingsForm({
                   />
                   <Btn variant="soft" onClick={() => addDate(row)}>
                     <Plus size={15} />추가
+                  </Btn>
+                </div>
+
+                {/* 기간 + 요일로 한 번에 넣기 */}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    marginTop: 8,
+                    padding: "8px 10px",
+                    background: "#F6F8FB",
+                    borderRadius: 9,
+                  }}
+                >
+                  <input
+                    type="date"
+                    style={{ ...inputBase, width: 148, padding: "7px 9px", fontSize: 13 }}
+                    value={bulkFrom[row.subject] ?? ""}
+                    onChange={(e) =>
+                      setBulkFrom((p) => ({ ...p, [row.subject]: e.target.value }))
+                    }
+                  />
+                  <span style={{ color: T.muted }}>~</span>
+                  <input
+                    type="date"
+                    style={{ ...inputBase, width: 148, padding: "7px 9px", fontSize: 13 }}
+                    value={bulkTo[row.subject] ?? ""}
+                    onChange={(e) =>
+                      setBulkTo((p) => ({ ...p, [row.subject]: e.target.value }))
+                    }
+                  />
+                  <div style={{ display: "flex", gap: 3 }}>
+                    {["일", "월", "화", "수", "목", "금", "토"].map((label, day) => {
+                      const on = (bulkDays[row.subject] ?? new Set()).has(day);
+                      return (
+                        <button
+                          key={day}
+                          onClick={() =>
+                            setBulkDays((p) => {
+                              const cur = new Set(p[row.subject] ?? []);
+                              if (cur.has(day)) cur.delete(day);
+                              else cur.add(day);
+                              return { ...p, [row.subject]: cur };
+                            })
+                          }
+                          style={{
+                            width: 28,
+                            height: 28,
+                            borderRadius: 7,
+                            border: `1px solid ${on ? T.primary : T.line}`,
+                            background: on ? T.primary : "#fff",
+                            color: on ? "#fff" : day === 0 ? T.bad : T.sub,
+                            fontSize: 12.5,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <Btn
+                    size="sm"
+                    variant="soft"
+                    disabled={!bulkPreview(row).length}
+                    onClick={() => addBulk(row)}
+                  >
+                    <Plus size={14} />
+                    {bulkPreview(row).length
+                      ? `${bulkPreview(row).length}일 한 번에 추가`
+                      : "기간·요일 고르기"}
                   </Btn>
                 </div>
 
@@ -4336,9 +5274,30 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
   // 학기 관리
   const createTerm = async (body: any) => {
     try {
-      const t: TermInfo = await api.post("/api/admin/terms", body);
+      const t: TermInfo & {
+        copied?: number;
+        graduated?: string[];
+        promotionYears?: number;
+      } = await api.post(
+        "/api/admin/terms",
+        body
+      );
       await reloadTerms();
       setTermId(t.id);
+      // 진급·졸업 처리 결과를 바로 알려 준다 (명단에서 누가 빠졌는지 확인용)
+      if (body.copyFrom && body.copyRoster) {
+        const out = t.graduated ?? [];
+        const years = t.promotionYears ?? 0;
+        alert(
+          `${t.name} 학기를 만들었습니다.\n\n` +
+            `명단 ${t.copied ?? 0}명 이월 · ${
+              years ? `학년 ${years}칸 자동 진급` : "같은 학년도라 진급 없음"
+            }\n` +
+            (out.length
+              ? `졸업으로 빠진 학생 ${out.length}명: ${out.join(", ")}`
+              : "졸업으로 빠진 학생 없음")
+        );
+      }
     } catch (e: any) {
       alert(e.message || "학기 생성 실패");
     }
@@ -4440,6 +5399,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
           onCreate={createTerm}
           onUpdate={updateTerm}
           onDelete={deleteTerm}
+          onRolledOver={reloadStudents}
         />
       ) : (
         <>
@@ -4509,12 +5469,16 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
               {tab === "students" && term && (
                 <AdminStudents
                   key={termId}
+                  termId={termId}
                   students={students}
                   subjects={subjects}
                   closedSubjects={term?.closedSubjects}
                   onAddStudent={addStudent}
                   onUpdateStudent={updateStudent}
                   onDeleteStudent={deleteStudent}
+                  onImported={async () => {
+                    await Promise.all([reloadTerms(), reloadStudents()]);
+                  }}
                 />
               )}
               {tab === "parentNotice" && (
@@ -4541,6 +5505,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                   onCreate={createTerm}
                   onUpdate={updateTerm}
                   onDelete={deleteTerm}
+                  onRolledOver={reloadStudents}
                 />
               )}
             </>
