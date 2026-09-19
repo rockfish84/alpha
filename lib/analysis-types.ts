@@ -82,6 +82,8 @@ export interface TestAnalysis {
   hasKey: boolean;
   /** 기출 회차 (유형별 강약점 집계에서 제외) */
   pastExam?: boolean;
+  /** 어느 학교 기출인지 (예: "둔산여고") */
+  pastExamSchool?: string;
   participants: number;
   avg: number | null;
   best: number | null;

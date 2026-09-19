@@ -145,7 +145,11 @@ export async function PUT(req: Request) {
     subject,
     date,
     questions,
-    { answersPublished: body.answersPublished, pastExam: body.pastExam }
+    {
+      answersPublished: body.answersPublished,
+      pastExam: body.pastExam,
+      pastExamSchool: body.pastExamSchool,
+    }
   );
   return NextResponse.json({ paper, regraded, date: isoDate(toDate(date)) });
 }

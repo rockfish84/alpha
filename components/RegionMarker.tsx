@@ -11,6 +11,7 @@ import {
   blockId,
   buildRegions,
   detectBlocks,
+  hasCards,
   regionRectsFor,
   type BlockId,
   type DetectedPage,
@@ -163,6 +164,8 @@ export function RegionMarker({
   }, [pages]);
 
   const selected = starts.size;
+  // 문항이 상자(카드) 하나에 하나씩 든 시험지는 상자를 그대로 문항으로 쓴다.
+  const cardMode = hasCards(pages);
 
   return (
     <Modal
@@ -179,11 +182,22 @@ export function RegionMarker({
       }
     >
       <div style={{ fontSize: 13, color: T.sub, lineHeight: 1.65, marginBottom: 12 }}>
-색칠된 영역이 <b>그 문항으로 저장될 범위</b>입니다. 문항 번호가 있는 줄을 문항 시작으로
-        잡고, 머리말(제목·학원 로고·날짜 칸)은 자동으로 빼 둡니다. 잘못 잡혔으면 블록을 눌러
-        시작을 켜고 끄면 번호와 범위가 다시 계산됩니다. 문항이 아예 아닌 블록은 오른쪽 위
-        <b>×</b> 를 눌러 <b>삭제</b>하세요 (삭제한 블록은 어느 문항에도 들어가지 않습니다).
-        해설이 다음 단·다음 장으로 이어지는 부분은 <b>시작을 끄면</b> 앞 문항에 이어 붙습니다.
+        {cardMode ? (
+          <>
+            문항이 <b>상자 하나에 하나씩</b> 들어 있는 시험지로 인식했습니다. 상자를 그대로
+            문항 범위로 저장하며, 머리말·바닥글은 들어가지 않습니다. 문항이 아닌 상자가
+            섞였으면 <b>눌러서 빼면</b> 됩니다 (뺀 상자는 회색으로 보이고, 번호가 다시
+            매겨집니다).
+          </>
+        ) : (
+          <>
+            색칠된 영역이 <b>그 문항으로 저장될 범위</b>입니다. 문항 번호가 있는 줄을 문항
+            시작으로 잡고, 머리말(제목·학원 로고·날짜 칸)은 자동으로 빼 둡니다. 잘못 잡혔으면
+            블록을 눌러 시작을 켜고 끄면 번호와 범위가 다시 계산됩니다. 문항이 아예 아닌
+            블록은 오른쪽 위 <b>×</b> 를 눌러 <b>삭제</b>하세요. 해설이 다음 단·다음 장으로
+            이어지는 부분은 <b>시작을 끄면</b> 앞 문항에 이어 붙습니다.
+          </>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
@@ -199,9 +213,11 @@ export function RegionMarker({
         >
           <Wand2 size={14} /> 자동 선택 다시
         </Btn>
-        <Btn variant="outline" size="sm" disabled={loading} onClick={() => setStarts(new Set())}>
-          전체 해제
-        </Btn>
+        {!cardMode && (
+          <Btn variant="outline" size="sm" disabled={loading} onClick={() => setStarts(new Set())}>
+            전체 해제
+          </Btn>
+        )}
         <Btn
           variant="outline"
           size="sm"
@@ -295,10 +311,14 @@ export function RegionMarker({
                   return (
                     <React.Fragment key={id}>
                       <button
-                        onClick={() => toggle(id)}
-                        disabled={off}
+                        onClick={() => (cardMode ? toggleExcluded(id) : toggle(id))}
+                        disabled={!cardMode && off}
                         title={
-                          off
+                          cardMode
+                            ? off
+                              ? "뺀 상자 (눌러서 되돌리기)"
+                              : "문항이 아니면 눌러서 빼기"
+                            : off
                             ? "삭제한 블록 (× 를 눌러 되돌리기)"
                             : on
                             ? "이 문항 시작 해제"
@@ -325,6 +345,8 @@ export function RegionMarker({
                         onClick={() => toggleExcluded(id)}
                         title={off ? "이 블록 되살리기" : "이 블록 삭제 (문항에서 제외)"}
                         style={{
+                          // 카드형은 상자 자체를 눌러서 빼므로 × 배지를 쓰지 않는다
+                          display: cardMode ? "none" : undefined,
                           position: "absolute",
                           left: `calc(${left + w}% - 9px)`,
                           top: `calc(${top}% - 9px)`,

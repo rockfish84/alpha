@@ -173,6 +173,8 @@ const TestConfigSchema = new Schema({
   // 기출 회차 (특정 학교 기출을 그대로 푼 날). 유형이 단원이 아니라 "OO고 기출"이 되므로
   // 유형별 강약점 집계에서는 빼고, 오답 노트의 유형 분류에는 그대로 쓴다.
   pastExam: { type: Boolean, default: false },
+  // 어느 학교 기출인지 (예: "둔산여고", "대전고 2024 1학기 중간"). 표시용 자유 입력.
+  pastExamSchool: { type: String, default: "", maxlength: 60 },
   questionRegions: { type: [QuestionRegionSchema], default: [] }, // 문항별 시험지·해설지 위치
 });
 TestConfigSchema.index({ term: 1, subject: 1, date: 1 }, { unique: true });

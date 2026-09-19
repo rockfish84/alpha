@@ -6,6 +6,13 @@
 import type { QuestionRegion, RegionRect } from "./analysis-types";
 
 const INK_LUMA = 205; // 이보다 어두우면 잉크로 본다
+// 카드(문항 상자) 테두리는 아주 연한 회색이라 잉크 기준으로는 안 잡힌다. 따로 본다.
+const BOX_LUMA = 245;
+const CARD_SIDE_RATIO = 0.12; // 이 비율(페이지 높이) 이상 이어져야 카드 옆 테두리로 본다
+const CARD_MIN_W = 0.14; // 카드 최소 가로 (페이지 폭 대비)
+const CARD_MIN_H = 0.10; // 카드 최소 세로 (페이지 높이 대비)
+const HEADER_BAND = 0.35; // 머리말 띠를 찾는 범위 (위쪽 이 비율 안)
+const HEADER_FILL = 0.6; // 가로로 이만큼 채운 행이면 머리말 띠로 본다
 const MIN_GAP_PT = 9; // 이보다 짧은 여백은 줄 간격으로 본다
 const MIN_BLOCK_PT = 6;
 const FOOTER_RATIO = 0.035; // 바닥글 가로선을 못 찾았을 때 쓰는 최소 여백
@@ -46,6 +53,8 @@ export interface DetectedPage {
   width: number;
   height: number;
   columns: DetectedColumn[];
+  /** 문항 상자(카드) 시험지면 카드 목록. 이때는 카드 하나 = 문항 하나다. */
+  cards?: DetectedCard[];
   canvas?: HTMLCanvasElement;
 }
 
@@ -100,6 +109,95 @@ function findFooterTop(
     if (n > w * 0.6) return y - 2; // 가로선
   }
   return fallback;
+}
+
+/** 문항 상자 하나. 읽는 순서(왼→오, 위→아래)로 돌려준다. */
+export interface DetectedCard {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** 머리말 띠(가로로 꽉 찬 행)의 아래 끝. 없으면 위쪽 5% 지점. */
+function headerBottom(data: Uint8ClampedArray, w: number, h: number): number {
+  let last = -1;
+  const limit = Math.floor(h * HEADER_BAND);
+  for (let y = 0; y < limit; y++) {
+    let n = 0;
+    for (let x = 0; x < w; x++) if (luma(data, (y * w + x) * 4) < INK_LUMA) n++;
+    if (n > w * HEADER_FILL) last = y;
+  }
+  return last >= 0 ? last + 4 : Math.round(h * 0.05);
+}
+
+/**
+ * 문항이 "상자(카드)" 하나에 하나씩 들어 있는 시험지를 인식한다.
+ *
+ * 카드의 좌·우 테두리는 위아래 테두리를 잇는 긴 세로선이다. 그 세로선의 위·아래 끝이
+ * 곧 카드의 높이이므로, 같은 높이를 가진 세로선끼리 짝지으면 카드가 된다.
+ * 카드 안쪽 구분선(해설지의 문제/풀이 가름선)은 테두리까지 닿지 않으므로 자연히 걸러진다.
+ */
+function detectCards(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number
+): DetectedCard[] {
+  const y0 = headerBottom(data, w, h);
+  const minLen = h * CARD_SIDE_RATIO;
+
+  // 1) 길게 이어지는 세로선을 찾아 (x, 위, 아래) 로 모은다
+  type Seg = { x: number; top: number; bottom: number };
+  const segs: Seg[] = [];
+  for (let x = 0; x < w; x++) {
+    let start = -1;
+    for (let y = y0; y <= h; y++) {
+      const on = y < h && luma(data, (y * w + x) * 4) < BOX_LUMA;
+      if (on && start < 0) start = y;
+      else if (!on && start >= 0) {
+        if (y - start >= minLen) segs.push({ x, top: start, bottom: y - 1 });
+        start = -1;
+      }
+    }
+  }
+  if (segs.length < 2) return [];
+
+  // 2) 위·아래 끝이 같은 세로선끼리 묶으면 한 줄(카드 행)이 된다
+  const rows: { top: number; bottom: number; xs: number[] }[] = [];
+  for (const seg of segs) {
+    const row = rows.find(
+      (r) => Math.abs(r.top - seg.top) <= 4 && Math.abs(r.bottom - seg.bottom) <= 4
+    );
+    if (row) row.xs.push(seg.x);
+    else rows.push({ top: seg.top, bottom: seg.bottom, xs: [seg.x] });
+  }
+
+  // 3) 붙어 있는 x 는 한 선으로 합치고, 좌우 짝을 지어 카드로 만든다
+  const cards: DetectedCard[] = [];
+  for (const row of rows) {
+    const sorted = [...new Set(row.xs)].sort((a, b) => a - b);
+    const lines: number[] = [];
+    let group = [sorted[0]];
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i] - group[group.length - 1] <= 3) group.push(sorted[i]);
+      else {
+        lines.push(Math.round(group.reduce((a, v) => a + v, 0) / group.length));
+        group = [sorted[i]];
+      }
+    }
+    lines.push(Math.round(group.reduce((a, v) => a + v, 0) / group.length));
+    if (lines.length < 2 || lines.length % 2) continue; // 짝이 안 맞으면 카드가 아니다
+
+    for (let i = 0; i < lines.length; i += 2) {
+      const x = lines[i];
+      const right = lines[i + 1];
+      const card = { x, y: row.top, w: right - x, h: row.bottom - row.top };
+      if (card.w >= w * CARD_MIN_W && card.h >= h * CARD_MIN_H) cards.push(card);
+    }
+  }
+
+  // 4) 읽는 순서: 위 줄부터, 같은 줄에서는 왼쪽부터
+  return cards.sort((a, b) => (Math.abs(a.y - b.y) > 6 ? a.y - b.y : a.x - b.x));
 }
 
 /** 한 단(column) 안의 잉크 행을 훑어 블록으로 자른다. */
@@ -243,21 +341,46 @@ export async function detectBlocks(
         ]
       : [[0, w]];
 
+    // 문항이 상자 하나에 하나씩 들어 있는 시험지면 상자를 그대로 문항으로 쓴다.
+    const cards = detectCards(px, w, h);
+
     pages.push({
       page: p,
       width: w,
       height: h,
+      cards: cards.length ? cards : undefined,
       canvas: opts.keepCanvas ? canvas : undefined,
-      columns: bands.map(([x0, x1]) => ({
-        x0,
-        x1,
-        blocks: blocksInColumn(px, w, x0, x1, y0, y1, MIN_GAP_PT),
-      })),
+      columns: cards.length
+        ? // 카드 한 개 = 블록 한 개 (읽는 순서 그대로)
+          [
+            {
+              x0: 0,
+              x1: w,
+              blocks: cards.map((c) => ({
+                top: c.y,
+                bottom: c.y + c.h,
+                left: c.x,
+                right: c.x + c.w,
+                gapAfter: 0,
+                looksLikeStart: true,
+              })),
+            },
+          ]
+        : bands.map(([x0, x1]) => ({
+            x0,
+            x1,
+            blocks: blocksInColumn(px, w, x0, x1, y0, y1, MIN_GAP_PT),
+          })),
     });
   }
 
   await doc.destroy?.();
   return pages;
+}
+
+/** 문항 상자(카드)로 인식된 시험지인지. */
+export function hasCards(pages: DetectedPage[]): boolean {
+  return pages.some((p) => (p.cards?.length ?? 0) > 0);
 }
 
 /** 읽는 순서(페이지 → 왼쪽 단 → 오른쪽 단 → 위에서 아래)로 늘어놓은 블록. */
@@ -291,6 +414,8 @@ const HEADER_MAX_RATIO = 0.3;
  */
 export function autoExcludeBlocks(pages: DetectedPage[]): Set<BlockId> {
   const out = new Set<BlockId>();
+  // 카드형 시험지는 카드 안쪽만 담기므로 머리말이 섞일 일이 없다.
+  if (hasCards(pages)) return out;
   const first = pages[0];
   if (!first) return out;
   first.columns.forEach((col, ci) => {
@@ -319,6 +444,12 @@ export function autoSelectStarts(
   const order = readingOrder(pages).filter((item) => !excluded.has(item.id));
   if (!order.length) return new Set();
   const starts = new Set<BlockId>();
+
+  // 카드형 시험지: 상자 하나가 문항 하나이므로 전부 문항 시작이다.
+  if (hasCards(pages)) {
+    for (const item of order) starts.add(item.id);
+    return starts;
+  }
 
   // 1순위: 첫 줄이 문항 번호처럼 생긴 블록
   const marked = order.filter((item) => item.block.looksLikeStart);
@@ -377,6 +508,29 @@ export function regionRectsFor(
   starts: Set<BlockId>,
   excluded: Set<BlockId> = new Set()
 ): GroupRect[] {
+  // 카드형 시험지는 상자 좌표가 곧 문항 영역이다.
+  if (hasCards(pages)) {
+    const rects: GroupRect[] = [];
+    let group = 0;
+    for (const page of pages) {
+      (page.cards ?? []).forEach((c, i) => {
+        if (excluded.has(blockId(page.page, 0, i))) return;
+        rects.push({
+          group: group++,
+          col: 0,
+          page: page.page,
+          x: Math.max(0, c.x - PAD),
+          y: Math.max(0, c.y - PAD),
+          w: Math.min(page.width, c.w + PAD * 2),
+          h: Math.min(page.height, c.h + PAD * 2),
+          pw: page.width,
+          ph: page.height,
+        });
+      });
+    }
+    return rects;
+  }
+
   const order = readingOrder(pages).filter((item) => !excluded.has(item.id));
   if (!order.length) return [];
 

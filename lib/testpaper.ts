@@ -46,6 +46,8 @@ export interface ClientTestPaper {
   answersPublished: boolean;
   /** 기출 회차 — 유형별 강약점 집계에서 제외 */
   pastExam: boolean;
+  /** 어느 학교 기출인지 (표시용) */
+  pastExamSchool: string;
   questionRegions: QuestionRegion[];
 }
 
@@ -60,6 +62,7 @@ export function serializeTestPaper(doc: any): ClientTestPaper {
     questions,
     answersPublished: doc?.answersPublished !== false,
     pastExam: !!doc?.pastExam,
+    pastExamSchool: (doc?.pastExamSchool ?? "") as string,
     questionRegions: normalizeRegions(doc?.questionRegions ?? []),
   };
 }
@@ -169,7 +172,11 @@ export async function saveQuestions(
   subject: string,
   dateIso: string,
   rawQuestions: unknown,
-  extra: { answersPublished?: boolean; pastExam?: boolean } = {}
+  extra: {
+    answersPublished?: boolean;
+    pastExam?: boolean;
+    pastExamSchool?: string;
+  } = {}
 ) {
   const questions = normalizeQuestions(rawQuestions);
   const set: Record<string, any> = { questions };
@@ -179,6 +186,9 @@ export async function saveQuestions(
     set.answersPublished = extra.answersPublished;
   }
   if (typeof extra.pastExam === "boolean") set.pastExam = extra.pastExam;
+  if (typeof extra.pastExamSchool === "string") {
+    set.pastExamSchool = extra.pastExamSchool.trim().slice(0, 60);
+  }
 
   const doc = await TestConfig.findOneAndUpdate(
     { term: termId, subject, date: toDate(dateIso) },

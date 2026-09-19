@@ -367,6 +367,8 @@ function AnswerKeyEditor({
   setPublished,
   pastExam,
   setPastExam,
+  pastExamSchool,
+  setPastExamSchool,
   onOpenTypeOrder,
 }: {
   questions: TestQuestion[];
@@ -378,6 +380,8 @@ function AnswerKeyEditor({
   setPublished: (v: boolean) => void;
   pastExam: boolean;
   setPastExam: (v: boolean) => void;
+  pastExamSchool: string;
+  setPastExamSchool: (v: string) => void;
   onOpenTypeOrder: () => void;
 }) {
   // 주 문항 번호 목록 (1..n)
@@ -624,6 +628,16 @@ function AnswerKeyEditor({
           <School size={14} />
           {pastExam ? "기출 회차" : "기출 아님"}
         </Btn>
+        {pastExam && (
+          <input
+            style={{ ...inputBase, width: 190, height: 32, fontSize: 13 }}
+            value={pastExamSchool}
+            placeholder="어느 학교 기출인가요"
+            title="학생 화면에 '둔산여고 기출' 처럼 표시됩니다."
+            maxLength={60}
+            onChange={(e) => setPastExamSchool(e.target.value)}
+          />
+        )}
         <Btn
           variant="outline"
           size="sm"
@@ -717,8 +731,9 @@ function AnswerKeyEditor({
           <br />
           그날 푼 문항만 채점하려면 표에서 <b>N번 삭제</b>로 빼면 됩니다 (예: 4·7·10번만 남기기).
           <br />
-          학교 기출을 그대로 푼 날은 위 <b>기출 회차</b>를 켜세요. 유형에 <b>둔산여고 기출</b>처럼 적으면
-          오답 노트에서는 그 이름으로 묶이고, 유형별 강약점 집계에서는 빠집니다.
+          학교 기출을 그대로 푼 날은 위 <b>기출 회차</b>를 켜고 <b>학교 이름</b>을 적으세요
+          (예: 둔산여고, 대전고 2024 1학기 중간). 학생 화면에 <b>둔산여고 기출</b>로 표시되고,
+          유형별 강약점 집계에서는 빠집니다. 오답 노트에서는 유형 칸에 적은 이름으로 묶입니다.
           <br />
           표 안에서는 <b>↑ ↓ ← →</b> 로 칸을 옮길 수 있고, <b>난이도</b>를 고르면 그 아래 문항까지
           같은 난이도로 맞춰집니다 (난이도는 오름차순).
@@ -1570,6 +1585,7 @@ export function AdminScores({
   const [questions, setQuestions] = useState<TestQuestion[]>([]);
   const [published, setPublished] = useState(true);
   const [pastExam, setPastExam] = useState(false);
+  const [pastExamSchool, setPastExamSchool] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [roster, setRoster] = useState<RosterRow[]>([]);
@@ -1619,6 +1635,7 @@ export function AdminScores({
           );
           setPublished(d.paper.answersPublished !== false);
           setPastExam(!!d.paper.pastExam);
+          setPastExamSchool(d.paper.pastExamSchool ?? "");
           setDirty(false);
         }
       } catch (e: any) {
@@ -1644,6 +1661,7 @@ export function AdminScores({
         questions,
         answersPublished: published,
         pastExam,
+        pastExamSchool,
       });
       setPaper(d.paper);
       setQuestions(d.paper.questions);
@@ -1900,6 +1918,11 @@ export function AdminScores({
             pastExam={pastExam}
             setPastExam={(v) => {
               setPastExam(v);
+              setDirty(true);
+            }}
+            pastExamSchool={pastExamSchool}
+            setPastExamSchool={(v) => {
+              setPastExamSchool(v);
               setDirty(true);
             }}
             setPublished={(v) => {

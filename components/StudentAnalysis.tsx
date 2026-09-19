@@ -623,7 +623,9 @@ export function TestDetail({
         </span>
         {test.pastExam && (
           <span title="학교 기출로 본 회차입니다. 유형별 강약점 집계에는 들어가지 않습니다.">
-            <Pill tone="warn">기출</Pill>
+            <Pill tone="warn">
+              {test.pastExamSchool ? `${test.pastExamSchool} 기출` : "기출"}
+            </Pill>
           </span>
         )}
         {test.myPct != null && (
@@ -930,9 +932,13 @@ export function TestScoresTab({
                                   fontWeight: 700,
                                   color: T.warn,
                                 }}
-                                title="학교 기출 회차"
+                                title={
+                                  t.pastExamSchool
+                                    ? `${t.pastExamSchool} 기출 회차`
+                                    : "학교 기출 회차"
+                                }
                               >
-                                기출
+                                {t.pastExamSchool ? `${t.pastExamSchool} 기출` : "기출"}
                               </span>
                             )}
                           </td>
@@ -1682,7 +1688,12 @@ function StarButton({
 /* ============================== 탭 3: 오답 노트 ============================== */
 const WRONG_PAGE_SIZE = 15;
 
-type WrongRow = QuestionAnalysis & { date: string; files: FileMeta[]; pastExam?: boolean };
+type WrongRow = QuestionAnalysis & {
+  date: string;
+  files: FileMeta[];
+  pastExam?: boolean;
+  pastExamSchool?: string;
+};
 
 /** 난이도 정렬 기준 (쉬운 것 → 어려운 것) */
 const DIFFICULTY_RANK: Record<string, number> = {
@@ -1754,7 +1765,13 @@ export function WrongNoteTab({
       if (t.subject !== subject || !t.hasKey || t.myPct == null) continue;
       for (const q of t.questions) {
         if (q.myExcluded) continue; // 이 학생이 안 푸는 문항은 오답 노트에 담지 않는다
-        out.push({ ...q, date: t.date, files: t.files, pastExam: t.pastExam });
+        out.push({
+          ...q,
+          date: t.date,
+          files: t.files,
+          pastExam: t.pastExam,
+          pastExamSchool: t.pastExamSchool,
+        });
       }
     }
     return out;
@@ -1991,9 +2008,11 @@ export function WrongNoteTab({
                         {w.pastExam && (
                           <span
                             style={{ marginLeft: 5, fontSize: 11, fontWeight: 700, color: T.warn }}
-                            title="학교 기출 회차"
+                            title={
+                              w.pastExamSchool ? `${w.pastExamSchool} 기출 회차` : "학교 기출 회차"
+                            }
                           >
-                            기출
+                            {w.pastExamSchool ? `${w.pastExamSchool} 기출` : "기출"}
                           </span>
                         )}
                       </td>

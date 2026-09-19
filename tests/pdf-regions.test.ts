@@ -5,6 +5,7 @@ import {
   autoSelectStarts,
   blockId,
   buildRegions,
+  hasCards,
   regionRectsFor,
   type DetectedBlock,
   type DetectedPage,
@@ -151,4 +152,76 @@ test("머리말은 1쪽에만 있다 — 2쪽부터는 아무 블록도 빼지 �
   const rects = regionRectsFor(pages, starts, excluded);
   const carried = rects.find((r) => r.page === 2 && r.y < 300);
   assert.ok(carried, "2쪽 위쪽 내용이 영역에 담겨야 한다");
+});
+
+/* ============================== 카드형 시험지 ============================== */
+
+/** 문항이 상자 하나에 하나씩 들어 있는 시험지 (2×2 카드) */
+const cardPage = (page: number): DetectedPage => ({
+  page,
+  width: 596,
+  height: 842,
+  // 카드 좌표는 실제 시험지에서 측정한 값 (머리말 아래 2×2 배치)
+  cards: [
+    { x: 33, y: 107, w: 256, h: 322 },
+    { x: 305, y: 107, w: 256, h: 322 },
+    { x: 33, y: 468, w: 255, h: 323 },
+    { x: 305, y: 468, w: 255, h: 323 },
+  ],
+  columns: [
+    {
+      x0: 0,
+      x1: 596,
+      blocks: [
+        block(107, 429, true, 33, 289),
+        block(107, 429, true, 305, 561),
+        block(468, 791, true, 33, 288),
+        block(468, 791, true, 305, 560),
+      ],
+    },
+  ],
+});
+
+test("카드형 시험지는 상자 하나가 문항 하나가 된다", () => {
+  const pages = [cardPage(1), cardPage(2)];
+  assert.equal(hasCards(pages), true);
+
+  // 머리말을 따로 지울 필요가 없다 (카드 안쪽만 담기므로)
+  const excluded = autoExcludeBlocks(pages);
+  assert.equal(excluded.size, 0);
+
+  // 모든 카드가 문항 시작
+  const starts = autoSelectStarts(pages, 8, excluded);
+  assert.equal(starts.size, 8);
+
+  const rects = regionRectsFor(pages, starts, excluded);
+  assert.equal(rects.length, 8, "카드 8개 → 영역 8개");
+  // 읽는 순서: 위 줄 왼쪽 → 오른쪽 → 아래 줄
+  assert.deepEqual(
+    rects.slice(0, 4).map((r) => [r.x, r.y]),
+    [
+      [29, 103],
+      [301, 103],
+      [29, 464],
+      [301, 464],
+    ]
+  );
+  // 카드마다 제 크기를 그대로 쓴다 (단 폭으로 뭉뚱그리지 않는다)
+  assert.ok(rects.every((r) => r.w < 300), "카드 폭이 페이지 폭으로 늘어나면 안 된다");
+});
+
+test("카드형에서 문항이 아닌 상자는 지울 수 있다", () => {
+  const pages = [cardPage(1)];
+  const excluded = new Set([blockId(1, 0, 1)]); // 두 번째 카드 삭제
+  const starts = autoSelectStarts(pages, 3, excluded);
+  const rects = regionRectsFor(pages, starts, excluded);
+
+  assert.equal(rects.length, 3);
+  // 지운 카드 자리는 건너뛰고 번호가 이어진다
+  const regions = buildRegions(pages, starts, [1, 2, 3], "paper", "f1", excluded);
+  assert.deepEqual(regions.map((r) => r.no), [1, 2, 3]);
+  assert.deepEqual(
+    regions.map((r) => r.rects[0].x),
+    [29, 29, 301]
+  );
 });
