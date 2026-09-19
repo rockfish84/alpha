@@ -28,10 +28,13 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# 학생/학부모 개인정보 엑셀 (git에 올리지 않음)
+# 학생/학부모 개인정보 엑셀·CSV (git에 올리지 않음)
 *.xlsx
 *.xls
 *.csv
+# 학부모 계정 발급 결과 (아이디·평문 비밀번호 — 절대 커밋 금지)
+학부모 계정 발급.csv
+*계정 발급*.csv
 
 # pdf.js 워커 (빌드 시 node_modules 에서 자동 복사)
 /public/pdf.worker.min.mjs
