@@ -3,7 +3,6 @@ import bcrypt from "bcryptjs";
 import { dbConnect } from "@/lib/db";
 import { Student, Admin, Parent } from "@/lib/models";
 import { getSession } from "@/lib/auth";
-import { ensureParent } from "@/lib/parents";
 import { blockedSeconds, clearFailures, clientIp, recordFailure } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -54,8 +53,8 @@ export async function POST(req: Request) {
   }
 
   if (role === "parent") {
-    // 학부모 계정은 학생과 같은 아이디·비밀번호로 시작한다. 계정 문서가 아직
-    // 없으면 학생 비밀번호가 맞을 때 그 자리에서 만들어 준다.
+    // 학부모 계정은 학원이 발급한다 (user001 · 숫자 10자리 비밀번호).
+    // 학생 아이디·비밀번호로는 학부모 화면에 들어올 수 없다.
     const parent = await Parent.findOne({ username });
     if (parent && (await bcrypt.compare(password, parent.password))) {
       const child = await Student.findById(parent.student).lean();
@@ -75,25 +74,6 @@ export async function POST(req: Request) {
         id: String(parent._id),
         name: child.name,
       });
-    }
-    if (!parent) {
-      const child = await Student.findOne({ username });
-      if (child && (await bcrypt.compare(password, child.password))) {
-        const created = await ensureParent(child as any);
-        clearFailures(rlKey);
-        session.user = {
-          id: String(created._id),
-          role: "parent",
-          name: child.name,
-          studentId: String(child._id),
-        };
-        await session.save();
-        return NextResponse.json({
-          role: "parent",
-          id: String(created._id),
-          name: child.name,
-        });
-      }
     }
     return fail("아이디 또는 비밀번호가 올바르지 않습니다.");
   }

@@ -5,7 +5,7 @@ import { Student, Enrollment, Parent } from "@/lib/models";
 import { requireAdmin } from "@/lib/auth";
 import { resolveTerm } from "@/lib/term";
 import { serializeRoster } from "@/lib/serialize";
-import { ensureParent, syncParentAccount } from "@/lib/parents";
+import { ensureParent } from "@/lib/parents";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +60,8 @@ export async function POST(req: Request) {
   const term = await resolveTerm(body.term);
   if (!term) return NextResponse.json({ error: "학기가 없습니다." }, { status: 400 });
 
+  // 학부모 계정을 새로 만들면 그 비밀번호는 여기서 한 번만 내려보낸다.
+  let issued: string | null = null;
   let student = await Student.findOne({ username });
   if (!student) {
     // 비밀번호를 따로 주지 않으면 전화번호를 첫 비밀번호로 쓴다(기존 운영 방식).
@@ -83,7 +85,7 @@ export async function POST(req: Request) {
       phone: typeof phone === "string" ? phone : "",
       password: await bcrypt.hash(initial, 10),
     });
-    await ensureParent(student as any);
+    issued = (await ensureParent(student as any)).password ?? null;
   } else {
     // 기존 계정: 이름/학교/비번 갱신 (선택)
     if (name) student.name = name;
@@ -99,11 +101,8 @@ export async function POST(req: Request) {
       student.password = await bcrypt.hash(password, 10);
     }
     await student.save();
-    await ensureParent(student as any);
-    // 비번을 바꿨으면 아직 스스로 바꾸지 않은 학부모 계정도 같이 맞춘다.
-    if (password && String(password).trim() !== "") {
-      await syncParentAccount(student as any);
-    }
+    // 학부모 계정은 학생 비밀번호와 연동되지 않는다 (없을 때만 새로 발급).
+    issued = (await ensureParent(student as any)).password ?? null;
   }
 
   const enr = await Enrollment.findOneAndUpdate(
@@ -119,7 +118,8 @@ export async function POST(req: Request) {
   ).lean();
 
   const parent = await Parent.findOne({ student: student._id }).lean();
-  return NextResponse.json(serializeRoster(enr, student.toObject(), parent), {
-    status: 201,
-  });
+  return NextResponse.json(
+    { ...serializeRoster(enr, student.toObject(), parent), parentPassword: issued },
+    { status: 201 }
+  );
 }

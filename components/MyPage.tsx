@@ -94,11 +94,26 @@ export function MyPage({ me, onDone }: { me: Me; onDone?: (msg: string) => void 
             }}
           >
             학부모 계정은 자녀의 출결·과제·테스트 성적을 <b>조회</b>할 수 있습니다. 클리닉
-            입력은 학생 계정에서만 가능합니다.
+            입력은 학생 계정에서만 가능합니다. 아이디와 비밀번호는 <b>학원에서 발급·관리</b>하며,
+            비밀번호를 잊으셨다면 학원으로 문의해 새로 발급받으세요.
           </div>
         )}
       </Card>
 
+      {isParent ? (
+        <Card style={{ padding: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <KeyRound size={17} color={T.muted} />
+            <span style={{ fontSize: 15.5, fontWeight: 800, color: T.ink }}>
+              비밀번호
+            </span>
+          </div>
+          <div style={{ fontSize: 13.5, color: T.sub, lineHeight: 1.7 }}>
+            학부모 계정의 비밀번호는 <b>학원에서 관리</b>합니다. 이 화면에서는 바꿀 수 없으며,
+            잊으셨을 때는 학원으로 문의하시면 새 비밀번호를 발급해 드립니다.
+          </div>
+        </Card>
+      ) : (
       <Card style={{ padding: 18 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
           <KeyRound size={17} color={T.primary} />
@@ -162,6 +177,7 @@ export function MyPage({ me, onDone }: { me: Me; onDone?: (msg: string) => void 
           {saving ? "변경 중…" : "비밀번호 변경"}
         </Btn>
       </Card>
+      )}
     </div>
   );
 }

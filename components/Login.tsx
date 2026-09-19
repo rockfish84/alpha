@@ -115,7 +115,6 @@ export function Login({
           <input
             style={{ ...inputBase, marginBottom: 6 }}
             type="password"
-            inputMode={mode === "admin" ? undefined : "numeric"}
             placeholder="비밀번호"
             value={p}
             onChange={(e) => setP(e.target.value)}

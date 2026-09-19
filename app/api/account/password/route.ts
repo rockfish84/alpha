@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { dbConnect } from "@/lib/db";
-import { Student, Parent } from "@/lib/models";
+import { Student } from "@/lib/models";
 import { requireUser } from "@/lib/auth";
-import { syncParentAccount } from "@/lib/parents";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +15,13 @@ export async function PATCH(req: Request) {
   if (g.user.role === "admin") {
     return NextResponse.json(
       { error: "관리자 비밀번호는 여기서 바꿀 수 없습니다." },
+      { status: 403 }
+    );
+  }
+  // 학부모 계정은 학원이 발급·관리한다. 비밀번호를 잊었으면 학원에서 재발급한다.
+  if (g.user.role === "parent") {
+    return NextResponse.json(
+      { error: "학부모 계정의 비밀번호는 학원에서 관리합니다. 학원으로 문의해주세요." },
       { status: 403 }
     );
   }
@@ -43,10 +49,7 @@ export async function PATCH(req: Request) {
   }
 
   await dbConnect();
-  const account =
-    g.user.role === "parent"
-      ? await Parent.findById(g.user.id)
-      : await Student.findById(g.user.id);
+  const account = await Student.findById(g.user.id);
   if (!account) {
     return NextResponse.json({ error: "계정을 찾을 수 없습니다." }, { status: 404 });
   }
@@ -57,17 +60,9 @@ export async function PATCH(req: Request) {
     );
   }
 
+  // 학생 비밀번호만 바꾼다. 학부모 계정은 따로 관리되므로 영향을 받지 않는다.
   account.password = await bcrypt.hash(next, 10);
-  if (g.user.role === "parent") {
-    // 스스로 바꾼 뒤로는 학생 비밀번호 변경에 더 이상 끌려가지 않는다.
-    (account as any).selfChanged = true;
-  }
   await account.save();
-
-  // 학생이 바꾸면 아직 스스로 바꾸지 않은 학부모 계정도 같이 맞춘다.
-  if (g.user.role === "student") {
-    await syncParentAccount(account as any);
-  }
 
   return NextResponse.json({ ok: true });
 }

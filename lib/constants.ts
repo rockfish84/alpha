@@ -88,7 +88,7 @@ export interface Student {
   username: string;
   phone?: string; // 문자 수신번호 (학부모 번호) — 비밀번호와 별개
   school?: string; // 재학 중인 학교
-  parentChanged?: boolean; // 학부모가 직접 비밀번호를 바꿨는지
+  parentUsername?: string; // 학원이 발급한 학부모 아이디 (user001 …)
   grade: string;
   status: "재원" | "퇴원";
   subjects: string[];

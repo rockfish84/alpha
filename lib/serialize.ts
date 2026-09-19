@@ -29,8 +29,8 @@ export function serializeRoster(enr: any, stu: any, parent?: any) {
     grade: (enr.grade ?? "") as string,
     subjects: (enr.subjects ?? []) as string[],
     status: (enr.status ?? "재원") as "재원" | "퇴원",
-    // 학부모 계정: 아이디는 학생과 같다. 비밀번호는 보여 주지 않고, 바뀌었는지만 알려 준다.
-    parentChanged: !!parent?.selfChanged,
+    // 학부모 계정: 학원이 발급한 아이디(user001…). 비밀번호는 해시만 있어 보여 줄 수 없다.
+    parentUsername: (parent?.username ?? "") as string,
     // 관리자 학교 성적 탭에서 조회할 학생의 학교 과목 목록.
     schoolExamResults: serializeSchoolExamResults(enr.schoolExamResults),
   };

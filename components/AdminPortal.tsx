@@ -1514,7 +1514,8 @@ function StudentForm({
         />
         <div style={{ fontSize: 12, color: T.sub, marginTop: 6, lineHeight: 1.6 }}>
           비밀번호는 <b>암호화되어 저장</b>되어 관리자도 볼 수 없습니다. 잊었다면 여기서 새로
-          설정해 알려 주세요.
+          설정해 알려 주세요. 학부모 계정은 <b>따로 발급된 아이디(user001…)</b>를 쓰므로 학생
+          비밀번호를 바꿔도 영향을 받지 않습니다.
           {isEdit && (
             <label
               style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}
@@ -1524,7 +1525,7 @@ function StudentForm({
                 checked={!!f.resetParent}
                 onChange={(e) => set("resetParent", e.target.checked)}
               />
-              학부모 비밀번호도 함께 초기화
+              학부모 비밀번호 재발급 (숫자 10자리를 새로 만들어 알려 줍니다)
             </label>
           )}
         </div>
@@ -1741,7 +1742,7 @@ function AdminStudents({
                   "이름",
                   "아이디",
                   "전화번호",
-                  "학부모 계정",
+                  "학부모 아이디",
                   "학교",
                   "학년",
                   "과목",
@@ -1800,17 +1801,13 @@ function AdminStudents({
                   <td
                     style={{
                       padding: "11px 14px",
-                      color: s.parentChanged ? T.warn : T.sub,
+                      color: s.parentUsername ? T.ink : T.muted,
                       fontFamily: "monospace",
                       whiteSpace: "nowrap",
                     }}
-                    title={
-                      s.parentChanged
-                        ? "학부모가 직접 비밀번호를 바꿨습니다."
-                        : "학생 비밀번호와 같습니다."
-                    }
+                    title="학원이 발급한 학부모 아이디입니다. 비밀번호는 저장돼 있지 않아 잊으면 재발급해야 합니다."
                   >
-                    {s.parentChanged ? "따로 변경됨" : "학생과 동일"}
+                    {s.parentUsername || "—"}
                   </td>
                   <td style={{ padding: "11px 14px", color: T.sub, whiteSpace: "nowrap" }}>
                     {s.school || "—"}
@@ -3837,9 +3834,20 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
     }
   };
 
+  /** 학부모 계정을 새로 발급했으면 그 자리에서 알려 준다 (비밀번호는 다시 볼 수 없다). */
+  const showIssuedParent = (res: any) => {
+    if (!res?.parentPassword) return;
+    alert(
+      `학부모 계정이 발급되었습니다.\n\n` +
+        `아이디  ${res.parentUsername}\n` +
+        `비밀번호  ${res.parentPassword}\n\n` +
+        `비밀번호는 저장되지 않으므로 지금 적어 두세요. 잊으면 재발급해야 합니다.`
+    );
+  };
+
   const addStudent = async (v: EditStudent) => {
     try {
-      await api.post("/api/admin/roster", { term: termId, ...v });
+      showIssuedParent(await api.post("/api/admin/roster", { term: termId, ...v }));
       reloadStudents();
     } catch (e: any) {
       alert(e.message || "추가에 실패했습니다.");
@@ -3847,7 +3855,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
   };
   const updateStudent = async (enrollmentId: string, patch: EditStudent) => {
     try {
-      await api.patch(`/api/admin/roster/${enrollmentId}`, patch);
+      showIssuedParent(await api.patch(`/api/admin/roster/${enrollmentId}`, patch));
       reloadStudents();
     } catch (e: any) {
       alert(e.message || "수정에 실패했습니다.");

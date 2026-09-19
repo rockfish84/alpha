@@ -4,7 +4,7 @@ import { dbConnect } from "@/lib/db";
 import { Student, Enrollment, Session, Parent } from "@/lib/models";
 import { requireAdmin } from "@/lib/auth";
 import { serializeRoster } from "@/lib/serialize";
-import { ensureParent, syncParentAccount } from "@/lib/parents";
+import { ensureParent, reissueParentPassword } from "@/lib/parents";
 
 export const dynamic = "force-dynamic";
 
@@ -64,23 +64,17 @@ export async function PATCH(
     stuChanged = true;
   }
   if (stuChanged) await student.save();
-  await ensureParent(student as any);
-  if (newPassword) {
-    // 아직 스스로 바꾸지 않은 학부모 계정은 따라간다.
-    await syncParentAccount(student as any);
-    // resetParent=true 면 학부모가 직접 바꾼 비밀번호도 덮어쓴다(잊었을 때).
-    if (body.resetParent) {
-      await Parent.findOneAndUpdate(
-        { student: student._id },
-        { $set: { password: student.password, selfChanged: false } }
-      );
-    }
-  }
+  // 학부모 계정은 학생 계정과 별개다 (아이디 user001 · 숫자 10자리 비밀번호).
+  const ensured = await ensureParent(student as any);
+  // resetParent=true 면 새 비밀번호를 발급한다 (잊었을 때). 평문은 이때 한 번만 나간다.
+  const reissued = body.resetParent ? await reissueParentPassword(student._id) : null;
 
   const parent = await Parent.findOne({ student: student._id }).lean();
-  return NextResponse.json(
-    serializeRoster(enr.toObject(), student.toObject(), parent)
-  );
+  return NextResponse.json({
+    ...serializeRoster(enr.toObject(), student.toObject(), parent),
+    // 새로 만들었거나 재발급했을 때만 내려간다 (다시 볼 수 없으니 바로 안내할 것)
+    parentPassword: reissued?.password ?? ensured.password ?? null,
+  });
 }
 
 // DELETE /api/admin/roster/:enrollmentId       -> 이 학기에서만 제외
