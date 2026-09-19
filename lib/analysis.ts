@@ -96,7 +96,9 @@ export async function buildTestAnalyses(
     const config = configByKey.get(key);
     const questions: TestQuestion[] = normalizeQuestions(config?.questions ?? []);
     const published = !config || config.answersPublished !== false;
-    const hasKey = questions.length > 0;
+    // 정답을 아직 채우지 않은 문항 설정(유형·배점만 등록한 상태)은 답안 키로 치지 않는다.
+    // 이런 회차는 관리자가 점수만 직접 넣으므로, 점수 통계 회차로 다뤄야 회차가 사라지지 않는다.
+    const hasKey = questions.some((q) => q.answer.trim() !== "");
     if (hasKey && !published) continue; // 미공개 회차는 학생·학부모에게 숨긴다
 
     const mine = rows.find((r) => String(r.student) === String(studentId));
