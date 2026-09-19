@@ -311,6 +311,8 @@ export async function buildTestAnalyses(
       maxScore: paperMax,
       questionCount: questionAnalyses.length,
       hasKey,
+      // 기출 회차는 유형이 단원이 아니라 "OO고 기출"이므로 유형별 강약점에서 뺀다.
+      pastExam: !!config?.pastExam,
       participants: scored.length,
       avg: Math.round(pcts.reduce((a, p) => a + p, 0) / pcts.length),
       best: Math.max(...pcts),

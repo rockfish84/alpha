@@ -170,6 +170,9 @@ const TestConfigSchema = new Schema({
   additionalMessage: { type: String, default: "" }, // 주간 문자 머리말 아래에 넣을 날짜·반별 안내
   questions: { type: [TestQuestionSchema], default: [] }, // 답안 키 (없으면 수동 점수 입력 회차)
   answersPublished: { type: Boolean, default: true }, // 학생·학부모에게 분석 공개
+  // 기출 회차 (특정 학교 기출을 그대로 푼 날). 유형이 단원이 아니라 "OO고 기출"이 되므로
+  // 유형별 강약점 집계에서는 빼고, 오답 노트의 유형 분류에는 그대로 쓴다.
+  pastExam: { type: Boolean, default: false },
   questionRegions: { type: [QuestionRegionSchema], default: [] }, // 문항별 시험지·해설지 위치
 });
 TestConfigSchema.index({ term: 1, subject: 1, date: 1 }, { unique: true });

@@ -120,22 +120,6 @@ export function Login({
             onChange={(e) => setP(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
-          {mode === "parent" && (
-            <div
-              style={{
-                fontSize: 12.5,
-                color: T.sub,
-                background: "#F6F8FB",
-                borderRadius: 9,
-                padding: "9px 11px",
-                margin: "8px 0 2px",
-                lineHeight: 1.55,
-              }}
-            >
-              학부모 계정은 <b>자녀의 아이디·비밀번호</b>로 처음 로그인합니다. 로그인 후
-              마이페이지에서 학부모 전용 비밀번호로 바꿀 수 있어요.
-            </div>
-          )}
           {error && (
             <div
               style={{

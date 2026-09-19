@@ -44,6 +44,8 @@ export interface ClientTestPaper {
   additionalMessage: string;
   questions: TestQuestion[];
   answersPublished: boolean;
+  /** 기출 회차 — 유형별 강약점 집계에서 제외 */
+  pastExam: boolean;
   questionRegions: QuestionRegion[];
 }
 
@@ -57,6 +59,7 @@ export function serializeTestPaper(doc: any): ClientTestPaper {
     additionalMessage: (doc?.additionalMessage ?? "") as string,
     questions,
     answersPublished: doc?.answersPublished !== false,
+    pastExam: !!doc?.pastExam,
     questionRegions: normalizeRegions(doc?.questionRegions ?? []),
   };
 }
@@ -166,7 +169,7 @@ export async function saveQuestions(
   subject: string,
   dateIso: string,
   rawQuestions: unknown,
-  extra: { answersPublished?: boolean } = {}
+  extra: { answersPublished?: boolean; pastExam?: boolean } = {}
 ) {
   const questions = normalizeQuestions(rawQuestions);
   const set: Record<string, any> = { questions };
@@ -175,6 +178,7 @@ export async function saveQuestions(
   if (typeof extra.answersPublished === "boolean") {
     set.answersPublished = extra.answersPublished;
   }
+  if (typeof extra.pastExam === "boolean") set.pastExam = extra.pastExam;
 
   const doc = await TestConfig.findOneAndUpdate(
     { term: termId, subject, date: toDate(dateIso) },

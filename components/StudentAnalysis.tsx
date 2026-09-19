@@ -621,6 +621,11 @@ export function TestDetail({
         <span style={{ fontSize: 16, fontWeight: 800, color: T.ink }}>
           {formatDay(test.date)} {test.subject}
         </span>
+        {test.pastExam && (
+          <span title="학교 기출로 본 회차입니다. 유형별 강약점 집계에는 들어가지 않습니다.">
+            <Pill tone="warn">기출</Pill>
+          </span>
+        )}
         {test.myPct != null && (
           <Pill tone={test.myPct >= 80 ? "ok" : test.myPct >= 50 ? "primary" : "bad"}>
             내 점수 {test.myScore}/{test.maxScore} ({test.myPct}점)
@@ -917,6 +922,19 @@ export function TestScoresTab({
                             }}
                           >
                             {formatDay(t.date)}
+                            {t.pastExam && (
+                              <span
+                                style={{
+                                  marginLeft: 6,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  color: T.warn,
+                                }}
+                                title="학교 기출 회차"
+                              >
+                                기출
+                              </span>
+                            )}
                           </td>
                           <td style={{ ...td, textAlign: "center" }}>
                             {t.myScore == null ? (
@@ -1031,6 +1049,8 @@ export function QuestionAnalysisTab({
       { type: string; count: number; mineCorrect: number; classRate: number[] }
     >();
     for (const t of rows) {
+      // 기출 회차는 유형이 단원이 아니라 "OO고 기출" 이라 강약점 집계에 넣지 않는다.
+      if (t.pastExam) continue;
       for (const q of t.questions) {
         if (t.myPct == null || q.myExcluded) continue;
         const key = q.type || "미분류";
@@ -1662,7 +1682,7 @@ function StarButton({
 /* ============================== 탭 3: 오답 노트 ============================== */
 const WRONG_PAGE_SIZE = 15;
 
-type WrongRow = QuestionAnalysis & { date: string; files: FileMeta[] };
+type WrongRow = QuestionAnalysis & { date: string; files: FileMeta[]; pastExam?: boolean };
 
 /** 난이도 정렬 기준 (쉬운 것 → 어려운 것) */
 const DIFFICULTY_RANK: Record<string, number> = {
@@ -1734,7 +1754,7 @@ export function WrongNoteTab({
       if (t.subject !== subject || !t.hasKey || t.myPct == null) continue;
       for (const q of t.questions) {
         if (q.myExcluded) continue; // 이 학생이 안 푸는 문항은 오답 노트에 담지 않는다
-        out.push({ ...q, date: t.date, files: t.files });
+        out.push({ ...q, date: t.date, files: t.files, pastExam: t.pastExam });
       }
     }
     return out;
@@ -1966,7 +1986,17 @@ export function WrongNoteTab({
                         />
                       </td>
                       <td style={{ ...td, textAlign: "center", width: 34 }}>{star(w)}</td>
-                      <td style={{ ...td, fontWeight: 700 }}>{formatDay(w.date)}</td>
+                      <td style={{ ...td, fontWeight: 700, whiteSpace: "nowrap" }}>
+                        {formatDay(w.date)}
+                        {w.pastExam && (
+                          <span
+                            style={{ marginLeft: 5, fontSize: 11, fontWeight: 700, color: T.warn }}
+                            title="학교 기출 회차"
+                          >
+                            기출
+                          </span>
+                        )}
+                      </td>
                       <td style={{ ...td, fontWeight: 800 }}>{w.label}</td>
                       <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>
                         {w.type || <span style={{ color: T.muted }}>—</span>}

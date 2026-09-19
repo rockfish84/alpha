@@ -80,6 +80,8 @@ export interface TestAnalysis {
   maxScore: number;
   questionCount: number;
   hasKey: boolean;
+  /** 기출 회차 (유형별 강약점 집계에서 제외) */
+  pastExam?: boolean;
   participants: number;
   avg: number | null;
   best: number | null;

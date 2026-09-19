@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   ScanLine,
   ListOrdered,
+  School,
 } from "lucide-react";
 import { T, md, pickGradingDate, todayIso, type Student } from "@/lib/constants";
 import { api } from "@/lib/api";
@@ -364,6 +365,8 @@ function AnswerKeyEditor({
   onSave,
   published,
   setPublished,
+  pastExam,
+  setPastExam,
   onOpenTypeOrder,
 }: {
   questions: TestQuestion[];
@@ -373,6 +376,8 @@ function AnswerKeyEditor({
   onSave: () => void;
   published: boolean;
   setPublished: (v: boolean) => void;
+  pastExam: boolean;
+  setPastExam: (v: boolean) => void;
   onOpenTypeOrder: () => void;
 }) {
   // 주 문항 번호 목록 (1..n)
@@ -612,6 +617,16 @@ function AnswerKeyEditor({
         <Btn
           variant="outline"
           size="sm"
+          onClick={() => setPastExam(!pastExam)}
+          title="이 테스트가 특정 학교 기출이면 켜세요. 유형별 강약점 집계에서 빠지고, 오답 노트에서는 유형 그대로 분류됩니다."
+          style={pastExam ? { borderColor: T.accent, color: T.accent } : undefined}
+        >
+          <School size={14} />
+          {pastExam ? "기출 회차" : "기출 아님"}
+        </Btn>
+        <Btn
+          variant="outline"
+          size="sm"
           onClick={() => setPublished(!published)}
           title="학생·학부모 화면에 이 회차 분석을 공개할지"
         >
@@ -701,6 +716,9 @@ function AnswerKeyEditor({
           정답은 <b>문자·문자열</b>도 됩니다. 복수 정답은 <b>|</b> 로 구분하세요 (예: <b>3|③</b>).
           <br />
           그날 푼 문항만 채점하려면 표에서 <b>N번 삭제</b>로 빼면 됩니다 (예: 4·7·10번만 남기기).
+          <br />
+          학교 기출을 그대로 푼 날은 위 <b>기출 회차</b>를 켜세요. 유형에 <b>둔산여고 기출</b>처럼 적으면
+          오답 노트에서는 그 이름으로 묶이고, 유형별 강약점 집계에서는 빠집니다.
           <br />
           표 안에서는 <b>↑ ↓ ← →</b> 로 칸을 옮길 수 있고, <b>난이도</b>를 고르면 그 아래 문항까지
           같은 난이도로 맞춰집니다 (난이도는 오름차순).
@@ -1551,6 +1569,7 @@ export function AdminScores({
   const [paper, setPaper] = useState<PaperData | null>(null);
   const [questions, setQuestions] = useState<TestQuestion[]>([]);
   const [published, setPublished] = useState(true);
+  const [pastExam, setPastExam] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [roster, setRoster] = useState<RosterRow[]>([]);
@@ -1599,6 +1618,7 @@ export function AdminScores({
               : buildQuestions(DEFAULT_QUESTION_COUNT)
           );
           setPublished(d.paper.answersPublished !== false);
+          setPastExam(!!d.paper.pastExam);
           setDirty(false);
         }
       } catch (e: any) {
@@ -1623,6 +1643,7 @@ export function AdminScores({
         date,
         questions,
         answersPublished: published,
+        pastExam,
       });
       setPaper(d.paper);
       setQuestions(d.paper.questions);
@@ -1876,6 +1897,11 @@ export function AdminScores({
             saving={saving}
             onSave={saveKey}
             published={published}
+            pastExam={pastExam}
+            setPastExam={(v) => {
+              setPastExam(v);
+              setDirty(true);
+            }}
             setPublished={(v) => {
               setPublished(v);
               setDirty(true);
