@@ -7,6 +7,7 @@ import {
   buildQuestions,
   bucketIndex,
   applyMathShortcuts,
+  commitPointsDraft,
   distributePoints,
   isMultipleChoice,
   gradableQuestions,
@@ -16,6 +17,7 @@ import {
   normalizeAnswerMap,
   normalizeExcluded,
   normalizeQuestions,
+  parsePointsDraft,
   questionLabel,
   totalPoints,
   type TestQuestion,
@@ -34,6 +36,23 @@ const q = (p: Partial<TestQuestion> & { no: number }): TestQuestion => ({
 test("문항 이름은 부분문제를 8-(1) 형태로 만든다", () => {
   assert.equal(questionLabel({ no: 8 }), "8");
   assert.equal(questionLabel({ no: 8, part: 2 }), "8-(2)");
+});
+
+test("배점은 온점을 입력하는 중간 상태와 소수점 값을 구분한다", () => {
+  assert.equal(parsePointsDraft("."), null);
+  assert.equal(parsePointsDraft("5."), 5);
+  assert.equal(parsePointsDraft(".5"), 0.5);
+  assert.equal(parsePointsDraft("5.25"), 5.25);
+  // 모바일 숫자 키보드의 쉼표와 전각 온점도 허용한다.
+  assert.equal(parsePointsDraft("5,5"), 5.5);
+  assert.equal(parsePointsDraft("5．5"), 5.5);
+});
+
+test("배점 확정 시 소수 둘째 자리와 허용 범위로 정리한다", () => {
+  assert.equal(commitPointsDraft("2.345"), 2.35);
+  assert.equal(commitPointsDraft("."), 0);
+  assert.equal(commitPointsDraft("-1"), 0);
+  assert.equal(commitPointsDraft("1001"), 1000);
 });
 
 test("답안 비교는 공백·대소문자·전각·원문자를 무시한다", () => {

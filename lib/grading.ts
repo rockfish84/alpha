@@ -11,6 +11,8 @@ export const DIFFICULTIES: Difficulty[] = ["최상", "상", "중", "하", "최�
 
 /** 테스트는 항상 100점 만점으로 배점한다. */
 export const FULL_SCORE = 100;
+/** 한 문항에 허용하는 최대 배점. 서버 정규화 상한과 같다. */
+export const MAX_QUESTION_POINTS = 1000;
 
 export interface TestQuestion {
   no: number; // 주 문항 번호 (1부터)
@@ -20,6 +22,25 @@ export interface TestQuestion {
   type: string; // 유형 / 출제 단원 (관리자 입력)
   difficulty: Difficulty;
   choices: number; // 보기 수 (0 = 단답형)
+}
+
+/**
+ * 배점 입력 초안을 숫자로 읽는다. `5.`은 5로 계산할 수 있지만 입력칸의 문자열은
+ * 별도로 유지하며, `.`처럼 아직 숫자가 아닌 값은 null로 돌려준다.
+ */
+export function parsePointsDraft(raw: unknown): number | null {
+  const text = String(raw ?? "")
+    .trim()
+    .replace(/[,.，．]/g, ".");
+  if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(text)) return null;
+  const value = Number(text);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+/** 저장 가능한 배점으로 확정한다 (0~1000, 소수 둘째 자리). */
+export function commitPointsDraft(raw: unknown): number {
+  const value = parsePointsDraft(raw) ?? 0;
+  return Math.round(Math.min(MAX_QUESTION_POINTS, value) * 100) / 100;
 }
 
 /** 객관식(보기 선택) 문항인지. choices 0 이면 단답형. */
@@ -128,7 +149,7 @@ export function normalizeQuestions(raw: unknown): TestQuestion[] {
       answer: String(src.answer ?? "").slice(0, 120),
       points:
         Number.isFinite(pointsRaw) && pointsRaw >= 0
-          ? Math.round(Math.min(1000, pointsRaw) * 100) / 100
+          ? Math.round(Math.min(MAX_QUESTION_POINTS, pointsRaw) * 100) / 100
           : 1,
       type: String(src.type ?? "").slice(0, 60),
       difficulty: DIFFICULTIES.includes(difficulty) ? difficulty : "",

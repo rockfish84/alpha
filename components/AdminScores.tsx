@@ -31,9 +31,11 @@ import {
   MAX_QUESTION_COUNT,
   blankQuestion,
   buildQuestions,
+  commitPointsDraft,
   distributePoints,
   gradeAnswers,
   isMultipleChoice,
+  parsePointsDraft,
   questionLabel,
   sortQuestions,
   totalPoints,
@@ -311,6 +313,62 @@ function AnswerInput({
         const next = applyMathShortcuts(raw, pos);
         if (next.value !== raw) caretRef.current = next.caret;
         onChange(next.value);
+      }}
+    />
+  );
+}
+
+/**
+ * 배점 입력칸. number 상태에 바로 묶으면 `5.`을 치는 즉시 `5`로 돌아가므로,
+ * 포커스 중에는 문자열 초안을 따로 유지한다.
+ */
+function PointsInput({
+  value,
+  onChange,
+  onKeyDown,
+  dataRow,
+  dataCol,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  dataRow?: number;
+  dataCol?: number;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  const focused = useRef(false);
+
+  useEffect(() => {
+    if (!focused.current) setDraft(String(value));
+  }, [value]);
+
+  const finish = () => {
+    focused.current = false;
+    const committed = commitPointsDraft(draft);
+    setDraft(String(committed));
+    onChange(committed);
+  };
+
+  return (
+    <input
+      style={cellBase}
+      inputMode="decimal"
+      data-krow={dataRow}
+      data-kcol={dataCol}
+      value={draft}
+      onFocus={() => {
+        focused.current = true;
+      }}
+      onBlur={finish}
+      onKeyDown={onKeyDown}
+      onChange={(e) => {
+        // 모바일 숫자 키보드의 쉼표와 전각 온점도 일반 온점으로 통일한다.
+        const next = e.target.value.replace(/[,.，．]/g, ".");
+        // 소수 둘째 자리까지만 받되, "", ".", "5." 같은 입력 중간 상태는 허용한다.
+        if (!/^\d*(?:\.\d{0,2})?$/.test(next)) return;
+        setDraft(next);
+        const parsed = parsePointsDraft(next);
+        if (parsed != null) onChange(parsed);
       }}
     />
   );
@@ -882,16 +940,12 @@ function AnswerKeyEditor({
                         {partsPoints(q.no)}
                       </div>
                     ) : (
-                      <input
-                        style={cellBase}
-                        inputMode="decimal"
-                        data-krow={rowIndex}
-                        data-kcol={1}
+                      <PointsInput
+                        value={q.points}
+                        dataRow={rowIndex}
+                        dataCol={1}
                         onKeyDown={(e) => onKeyNav(e, rowIndex, 1)}
-                        value={String(q.points)}
-                        onChange={(e) =>
-                          patch(q.no, q.part, { points: Number(e.target.value) || 0 })
-                        }
+                        onChange={(points) => patch(q.no, q.part, { points })}
                       />
                     )}
                   </td>
