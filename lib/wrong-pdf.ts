@@ -32,6 +32,12 @@ const MIN_FIT = 0.62;
 const MAX_SPREAD = 18;
 /** 문제지는 한 단에 두 문항까지 (= A4 한 장에 네 문항). 남는 자리는 풀 공간이 된다. */
 const QUESTION_PER_COLUMN = 2;
+/**
+ * 오답 PDF 문항 이미지 품질.
+ * 2단 폭(약 92mm)에 1440px이면 약 400dpi라 원본의 가는 수식도 인쇄 시 선명하다.
+ */
+const EXPORT_IMAGE_WIDTH = 1440;
+const EXPORT_MAX_SCALE = 6;
 
 /** 가로로 넓적한 문항은 한 단(가로 전체)으로 써야 종이를 꽉 채운다 */
 const WIDE_ASPECT = 1.45;
@@ -230,8 +236,10 @@ export async function buildWrongNotePdf(
       blocks.push({
         label: wantQuestion ? item.title : `${item.title} — 답·해설`,
         // 문항 둘레의 빈 여백을 잘라내야 종이가 꽉 찬다
-        images: await renderRegionImages(source.fileId, source.rects, 720, {
+        images: await renderRegionImages(source.fileId, source.rects, EXPORT_IMAGE_WIDTH, {
           trim: true,
+          format: "png",
+          maxScale: EXPORT_MAX_SCALE,
         }),
       });
     }
@@ -297,7 +305,10 @@ export async function buildWrongNotePdf(
     for (const im of block.images) {
       const w = colW * placed.shrink;
       const hh = (w * im.height) / im.width;
-      doc.addImage(im.dataUrl, "JPEG", x, imgY, w, hh, undefined, "FAST");
+      // 문항 이미지는 무손실 PNG. 데이터 URL에 맞는 형식을 지정해야 jsPDF가
+      // JPEG로 잘못 해석하거나 재압축하지 않는다.
+      const format = im.dataUrl.startsWith("data:image/png") ? "PNG" : "JPEG";
+      doc.addImage(im.dataUrl, format, x, imgY, w, hh, undefined, "FAST");
       imgY += hh;
     }
   };

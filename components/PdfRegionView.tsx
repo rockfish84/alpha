@@ -81,14 +81,21 @@ export async function renderRegionImages(
   fileId: string,
   rects: RegionRect[],
   targetWidth = 720,
-  opts: { trim?: boolean } = {}
+  opts: {
+    trim?: boolean;
+    /** 인쇄용은 PNG를 쓰면 가는 글씨·수식의 JPEG 번짐을 피할 수 있다. */
+    format?: "jpeg" | "png";
+    jpegQuality?: number;
+    /** PDF.js 렌더 배율 상한. 화면용 기본값은 4, 고화질 인쇄는 더 높일 수 있다. */
+    maxScale?: number;
+  } = {}
 ): Promise<{ dataUrl: string; width: number; height: number }[]> {
   const doc = await getDoc(fileId);
   const out: { dataUrl: string; width: number; height: number }[] = [];
   for (const rect of rects) {
     if (rect.w <= 0 || rect.h <= 0) continue;
     const page = await doc.getPage(rect.page);
-    const scale = Math.min(4, Math.max(1, targetWidth / rect.w));
+    const scale = Math.min(opts.maxScale ?? 4, Math.max(1, targetWidth / rect.w));
     const viewport = page.getViewport({ scale });
     const canvas = document.createElement("canvas");
     canvas.width = Math.ceil(rect.w * scale);
@@ -103,8 +110,12 @@ export async function renderRegionImages(
       transform: [1, 0, 0, 1, -rect.x * scale, -rect.y * scale],
     }).promise;
     const final = opts.trim ? trimCanvas(canvas) : canvas;
+    const dataUrl =
+      opts.format === "png"
+        ? final.toDataURL("image/png")
+        : final.toDataURL("image/jpeg", opts.jpegQuality ?? 0.82);
     out.push({
-      dataUrl: final.toDataURL("image/jpeg", 0.82),
+      dataUrl,
       width: final.width,
       height: final.height,
     });

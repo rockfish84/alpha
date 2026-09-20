@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>테스트 답안지 — OMR 22문항 · 단답형 5문항</title>
+    <style>
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 210mm;
+        height: 297mm;
+        margin: 0;
+        padding: 0;
+        color: #17243f;
+        background: #fff;
+        font-family: "Noto Sans KR", "Noto Sans CJK KR", "NanumGothic", sans-serif;
+        -webkit-print-color-adjust: exact;
+      }
+
+      .page {
+        position: relative;
+        width: 210mm;
+        height: 297mm;
+        overflow: hidden;
+      }
+
+      .sheet {
+        position: relative;
+        width: 210mm;
+        height: 148.5mm;
+        padding: 7mm 9mm 6.5mm;
+        overflow: hidden;
+        background: #fff;
+      }
+
+      .sheet:first-child {
+        border-bottom: 0.28mm dashed #9ba9bf;
+      }
+
+      .cut-label {
+        position: absolute;
+        left: 50%;
+        bottom: 0.55mm;
+        z-index: 3;
+        transform: translateX(-50%);
+        padding: 0 3mm;
+        color: #71809a;
+        background: #fff;
+        font-size: 6.7pt;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+      }
+
+      .sheet:last-child .cut-label {
+        display: none;
+      }
+
+      .topline {
+        display: flex;
+        align-items: flex-end;
+        height: 13mm;
+        padding-bottom: 2.2mm;
+        border-bottom: 0.75mm solid #17243f;
+      }
+
+      .title-wrap {
+        display: flex;
+        align-items: baseline;
+        gap: 2.7mm;
+        flex: 0 0 auto;
+        white-space: nowrap;
+      }
+
+      .title {
+        margin: 0;
+        font-size: 17pt;
+        font-weight: 900;
+        letter-spacing: -0.06em;
+        white-space: nowrap;
+      }
+
+      .subtitle {
+        color: #55709a;
+        font-size: 8pt;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        white-space: nowrap;
+      }
+
+      .brand {
+        margin-left: auto;
+        color: #8ba0c0;
+        font-size: 7.4pt;
+        font-weight: 700;
+        letter-spacing: 0.24em;
+      }
+
+      .meta {
+        display: grid;
+        grid-template-columns: 1.2fr 0.88fr 0.85fr 0.85fr;
+        gap: 2.6mm;
+        height: 17mm;
+        padding: 2.5mm 0 2.8mm;
+      }
+
+      .meta-box {
+        position: relative;
+        height: 11.7mm;
+        padding: 1.6mm 3mm 1.2mm;
+        border: 0.35mm solid #cfdaea;
+        border-radius: 2.2mm;
+        background: #fbfcff;
+      }
+
+      .meta-label {
+        color: #627493;
+        font-size: 7.2pt;
+        font-weight: 600;
+      }
+
+      .write-line {
+        position: absolute;
+        right: 3mm;
+        bottom: 2.1mm;
+        left: 3mm;
+        height: 0;
+        border-bottom: 0.28mm dashed #b7c5d9;
+      }
+
+      .answer-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.9fr) minmax(0, 0.86fr);
+        gap: 3mm;
+        height: 93mm;
+      }
+
+      .panel {
+        height: 100%;
+        overflow: hidden;
+        border: 0.35mm solid #bfcee3;
+        border-radius: 2.4mm;
+        background: #fff;
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        height: 9.5mm;
+        padding: 0 3.2mm;
+        border-bottom: 0.35mm solid #c2d0e4;
+        color: #21477f;
+        background: #edf3fb;
+      }
+
+      .panel-title {
+        font-size: 9pt;
+        font-weight: 800;
+      }
+
+      .panel-note {
+        margin-left: auto;
+        color: #7083a2;
+        font-size: 6.5pt;
+        font-weight: 600;
+      }
+
+      .omr-columns {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        height: calc(100% - 9.5mm);
+      }
+
+      .omr-column:first-child {
+        border-right: 0.3mm solid #d7e0ed;
+      }
+
+      .omr-row {
+        display: grid;
+        grid-template-columns: 9mm repeat(5, 1fr);
+        align-items: center;
+        height: 7.56mm;
+        padding: 0 2.3mm;
+        border-bottom: 0.25mm solid #e0e7f1;
+      }
+
+      .omr-row:last-child {
+        border-bottom: 0;
+      }
+
+      .qno {
+        color: #17243f;
+        font-size: 8.5pt;
+        font-weight: 800;
+        text-align: center;
+      }
+
+      .bubble-wrap {
+        display: flex;
+        justify-content: center;
+      }
+
+      .bubble {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 4.8mm;
+        height: 4.8mm;
+        border: 0.42mm solid #61799e;
+        border-radius: 50%;
+        color: #405b84;
+        background: #fff;
+        font-family: Arial, sans-serif;
+        font-size: 6.7pt;
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      .short-list {
+        height: calc(100% - 9.5mm);
+      }
+
+      .short-row {
+        position: relative;
+        display: grid;
+        grid-template-columns: 10.5mm 1fr;
+        align-items: stretch;
+        height: 16.64mm;
+        border-bottom: 0.25mm solid #dce5f0;
+      }
+
+      .short-row:last-child {
+        border-bottom: 0;
+      }
+
+      .short-no {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-right: 0.3mm solid #d7e0ed;
+        color: #173b70;
+        background: #f7f9fd;
+        font-size: 9pt;
+        font-weight: 800;
+      }
+
+      .short-answer {
+        position: relative;
+      }
+
+      .short-answer::after {
+        content: "";
+        position: absolute;
+        right: 3.4mm;
+        bottom: 4.2mm;
+        left: 3.4mm;
+        border-bottom: 0.32mm solid #8798b3;
+      }
+
+      .footer {
+        display: flex;
+        align-items: center;
+        height: 8.5mm;
+        color: #667895;
+        font-size: 6.4pt;
+        line-height: 1.4;
+      }
+
+      .footer strong {
+        color: #294b7c;
+      }
+
+      .footer-tag {
+        flex: 0 0 auto;
+        margin-right: 2.2mm;
+        padding: 0.8mm 2mm;
+        border-radius: 99mm;
+        color: #fff;
+        background: #294f87;
+        font-size: 6.2pt;
+        font-weight: 800;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page" id="page"></main>
+
+    <template id="answer-sheet">
+      <section class="sheet">
+        <div class="topline">
+          <div class="title-wrap">
+            <h1 class="title">테스트 답안지</h1>
+            <span class="subtitle">OMR 22문항 · 단답형 5문항</span>
+          </div>
+          <div class="brand">DUBCO ALPHA CLINIC</div>
+        </div>
+
+        <div class="meta">
+          <div class="meta-box">
+            <div class="meta-label">반 (수업)</div>
+            <div class="write-line"></div>
+          </div>
+          <div class="meta-box">
+            <div class="meta-label">학생 이름</div>
+            <div class="write-line"></div>
+          </div>
+          <div class="meta-box">
+            <div class="meta-label">시행 날짜</div>
+            <div class="write-line"></div>
+          </div>
+          <div class="meta-box">
+            <div class="meta-label">점수</div>
+            <div class="write-line"></div>
+          </div>
+        </div>
+
+        <div class="answer-layout">
+          <section class="panel omr-panel">
+            <div class="panel-head">
+              <span class="panel-title">객관식 · 1–22번</span>
+              <span class="panel-note">정답 번호의 원을 진하게 칠하세요</span>
+            </div>
+            <div class="omr-columns">
+              <div class="omr-column" data-start="1"></div>
+              <div class="omr-column" data-start="12"></div>
+            </div>
+          </section>
+
+          <section class="panel short-panel">
+            <div class="panel-head">
+              <span class="panel-title">단답형 · 1–5번</span>
+              <span class="panel-note">답만 또박또박</span>
+            </div>
+            <div class="short-list"></div>
+          </section>
+        </div>
+
+        <div class="footer">
+          <span class="footer-tag">MARKING GUIDE</span>
+          <span><strong>객관식</strong>은 한 문항에 하나만 완전히 칠하고, <strong>단답형</strong>은 답란 안에 숫자·기호를 정확히 적어 주세요.</span>
+        </div>
+        <div class="cut-label">✂ 절 취 선</div>
+      </section>
+    </template>
+
+    <script>
+      const page = document.getElementById("page");
+      const template = document.getElementById("answer-sheet");
+
+      for (let copy = 0; copy < 2; copy += 1) {
+        const fragment = template.content.cloneNode(true);
+        fragment.querySelectorAll(".omr-column").forEach((column) => {
+          const start = Number(column.dataset.start);
+          for (let no = start; no < start + 11; no += 1) {
+            const row = document.createElement("div");
+            row.className = "omr-row";
+            row.innerHTML = `<span class="qno">${no}</span>${[1, 2, 3, 4, 5]
+              .map(
+                (choice) =>
+                  `<span class="bubble-wrap"><span class="bubble">${choice}</span></span>`
+              )
+              .join("")}`;
+            column.appendChild(row);
+          }
+        });
+
+        const shortList = fragment.querySelector(".short-list");
+        for (let no = 1; no <= 5; no += 1) {
+          const row = document.createElement("div");
+          row.className = "short-row";
+          row.innerHTML = `<span class="short-no">${no}</span><span class="short-answer"></span>`;
+          shortList.appendChild(row);
+        }
+        page.appendChild(fragment);
+      }
+    </script>
+  </body>
+</html>
