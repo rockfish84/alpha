@@ -921,6 +921,7 @@ export function StudentPortal({
       setTab(viewerOnly ? "scores" : "input");
     }
     if (tab === "input" && viewerOnly) setTab("scores");
+    if (tab === "history" && viewerOnly) setTab("scores");
   }, [tab, viewerOnly, schoolExamClasses.length]);
 
   // 이력·통계에서 종료된 반을 보다가 입력 탭으로 오면 진행 중인 반으로 되돌린다.
@@ -1131,8 +1132,8 @@ export function StudentPortal({
                 },
               ]
             : []),
+          { k: "history", label: "내 이력", icon: <History size={18} /> },
         ]),
-    { k: "history", label: viewerOnly ? "클리닉 이력" : "내 이력", icon: <History size={18} /> },
     { k: "stats", label: "전체 통계", icon: <TrendingUp size={18} /> },
     { k: "scores", label: "테스트 성적", icon: <BarChart3 size={18} /> },
     { k: "questions", label: "문항 분석", icon: <Target size={18} /> },
@@ -1358,7 +1359,7 @@ export function StudentPortal({
             </div>
           )}
 
-          {tab === "history" && (
+          {tab === "history" && !viewerOnly && (
             <StudentHistory
               mine={mine}
               subject={subject}
