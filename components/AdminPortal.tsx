@@ -34,7 +34,11 @@ import {
 } from "@/lib/constants";
 import { api } from "@/lib/api";
 import { parseRoster } from "@/lib/roster-excel";
-import type { ImportRecord } from "@/lib/roster-import";
+import {
+  applyRosterSubjectMap,
+  rosterSubjectGroups,
+  type ImportRecord,
+} from "@/lib/roster-import";
 import { datesInRange, getClinicDatesForSubject } from "@/lib/clinic-dates";
 import {
   normalizeClosedSubjects,
@@ -2090,22 +2094,32 @@ type RosterImportPreview = {
   };
 };
 
+/** 엑셀 반을 가져오지 않기로 고른 값 (실제 반 이름과 겹치지 않게) */
+const ROSTER_SKIP = "__roster_skip__";
+
 function RosterExcelImport({
   open,
   onClose,
   termId,
+  subjects,
+  closedSubjects,
   onImported,
 }: {
   open: boolean;
   onClose: () => void;
   termId: string;
+  subjects: string[];
+  closedSubjects?: string[];
   onImported: () => Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [records, setRecords] = useState<ImportRecord[]>([]);
   const [parseErrors, setParseErrors] = useState<{ source: string; reason: string }[]>([]);
+  // 엑셀 반 이름 → 고른 기존 반 (ROSTER_SKIP 이면 가져오지 않음, 빈 값이면 아직 안 고름)
+  const [mapping, setMapping] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<RosterImportPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState<null | {
@@ -2114,12 +2128,61 @@ function RosterExcelImport({
     updatedEnrollments: number;
     skipped: number;
   }>(null);
+  const previewSeq = useRef(0);
+
+  // 부모가 매번 새 배열을 넘겨도 미리보기를 다시 부르지 않도록 내용으로 비교한다.
+  const subjectKey = subjects.join("\u0000");
+  const termSubjects = useMemo(() => (subjectKey ? subjectKey.split("\u0000") : []), [subjectKey]);
+  const closedSet = useMemo(() => new Set(closedSubjects ?? []), [closedSubjects]);
+  const openList = termSubjects.filter((sub) => !closedSet.has(sub));
+  const closedList = termSubjects.filter((sub) => closedSet.has(sub));
+
+  const groups = useMemo(() => rosterSubjectGroups(records), [records]);
+  const decided = (name: string) => {
+    const value = mapping[name];
+    return value === ROSTER_SKIP || termSubjects.includes(value);
+  };
+  const undecided = groups.filter((group) => !decided(group.name));
+  const skippedGroups = groups.filter((group) => mapping[group.name] === ROSTER_SKIP);
+  const mappedRecords = useMemo(
+    () => applyRosterSubjectMap(records, mapping, termSubjects),
+    [records, mapping, termSubjects]
+  );
+
+  // 반을 고를 때마다 서버에서 기존/신규/오류를 다시 맞춰 본다. 늦게 온 이전 응답은 버린다.
+  useEffect(() => {
+    if (done) return;
+    const seq = ++previewSeq.current;
+    if (!mappedRecords.length) {
+      setPreview(null);
+      setPreviewing(false);
+      return;
+    }
+    setPreviewing(true);
+    setError("");
+    api
+      .post("/api/admin/roster/import", { term: termId, records: mappedRecords, commit: false })
+      .then((result: RosterImportPreview) => {
+        if (seq === previewSeq.current) setPreview(result);
+      })
+      .catch((e: any) => {
+        if (seq !== previewSeq.current) return;
+        setPreview(null);
+        setError(e.message || "기존 학생과 대조하지 못했습니다.");
+      })
+      .finally(() => {
+        if (seq === previewSeq.current) setPreviewing(false);
+      });
+  }, [mappedRecords, termId, done]);
 
   const chooseFile = async (file: File) => {
+    previewSeq.current++;
     setFileName(file.name);
     setRecords([]);
+    setMapping({});
     setParseErrors([]);
     setPreview(null);
+    setPreviewing(false);
     setDone(null);
     setError("");
     setBusy(true);
@@ -2149,18 +2212,12 @@ function RosterExcelImport({
         );
       }
 
+      setParseErrors(nextErrors);
       if (!nextRecords.length) {
-        setParseErrors(nextErrors);
         throw new Error("반영할 학생을 읽지 못했습니다. 머리행과 학부모 번호를 확인해 주세요.");
       }
+      // 반은 미리 골라 두지 않는다. 엑셀 묶음마다 관리자가 기존 반에서 직접 고른다.
       setRecords(nextRecords);
-      setParseErrors(nextErrors);
-      const result: RosterImportPreview = await api.post("/api/admin/roster/import", {
-        term: termId,
-        records: nextRecords,
-        commit: false,
-      });
-      setPreview(result);
     } catch (e: any) {
       setError(e.message || "엑셀 파일을 읽지 못했습니다.");
     } finally {
@@ -2171,11 +2228,11 @@ function RosterExcelImport({
   };
 
   const commit = async () => {
-    if (!preview || !records.length || busy) return;
+    if (!preview || !mappedRecords.length || undecided.length || previewing || busy) return;
     const valid = preview.summary.existing + preview.summary.newStudents;
     if (
       !window.confirm(
-        `${valid}명을 현재 학기에 반영할까요?\n기존 학생은 계정을 유지하고 수강반만 추가됩니다.`
+        `${valid}명을 현재 학기에 반영할까요?\n기존 학생은 계정을 유지하고 고른 반만 추가됩니다.`
       )
     ) return;
     setBusy(true);
@@ -2183,10 +2240,16 @@ function RosterExcelImport({
     try {
       const result = await api.post("/api/admin/roster/import", {
         term: termId,
-        records,
+        records: mappedRecords,
         commit: true,
       });
-      setDone({ ...result, skipped: Number(result.skipped ?? 0) + parseErrors.length });
+      setDone({
+        ...result,
+        skipped:
+          Number(result.skipped ?? 0) +
+          parseErrors.length +
+          (records.length - mappedRecords.length),
+      });
       await onImported();
     } catch (e: any) {
       setError(e.message || "명단 반영에 실패했습니다.");
@@ -2195,8 +2258,13 @@ function RosterExcelImport({
     }
   };
 
+  const groupLabel = (name: string) => name || "반명 없음";
   const allErrors = [
     ...parseErrors,
+    ...skippedGroups.map((group) => ({
+      source: `엑셀 반 ${groupLabel(group.name)}`,
+      reason: `가져오지 않음으로 선택 (${group.students}명)`,
+    })),
     ...(preview?.errors ?? []),
     ...(preview?.rows
       .filter((row) => row.kind === "error")
@@ -2205,6 +2273,24 @@ function RosterExcelImport({
   const validCount = preview
     ? preview.summary.existing + preview.summary.newStudents
     : 0;
+  const subjectOptions = (
+    <>
+      {openList.map((sub) => (
+        <option key={sub} value={sub}>
+          {sub}
+        </option>
+      ))}
+      {!!closedList.length && (
+        <optgroup label="종료된 반">
+          {closedList.map((sub) => (
+            <option key={sub} value={sub}>
+              {sub} (종료)
+            </option>
+          ))}
+        </optgroup>
+      )}
+    </>
+  );
 
   return (
     <Modal open={open} onClose={busy ? () => {} : onClose} title="엑셀 명단 가져오기" width={940}>
@@ -2232,17 +2318,37 @@ function RosterExcelImport({
             }}
           >
             <div style={{ color: T.sub, fontSize: 13.5, lineHeight: 1.6 }}>
-              머리행과 반명 위치를 자동으로 찾습니다. 실제 반영 전 기존·신규·오류를 먼저 보여 줍니다.
+              머리행을 자동으로 찾고, 반은 이 학기의 기존 반에서 직접 고릅니다. 실제 반영 전
+              기존·신규·오류를 먼저 보여 줍니다.
               {fileName && <div style={{ color: T.ink, fontWeight: 700 }}>{fileName}</div>}
             </div>
-            <Btn variant="outline" disabled={busy} onClick={() => inputRef.current?.click()}>
-              <Upload size={16} /> {preview ? "다른 파일 선택" : "엑셀 파일 선택"}
+            <Btn
+              variant="outline"
+              disabled={busy || !termSubjects.length}
+              onClick={() => inputRef.current?.click()}
+            >
+              <Upload size={16} /> {records.length ? "다른 파일 선택" : "엑셀 파일 선택"}
             </Btn>
           </div>
 
-          {busy && !preview && (
+          {!termSubjects.length && (
+            <div
+              style={{
+                color: T.warn,
+                background: T.warnSoft,
+                borderRadius: 10,
+                padding: "10px 12px",
+                marginBottom: 14,
+                fontSize: 13.5,
+              }}
+            >
+              이 학기에 등록된 반이 없습니다. 학기 설정에서 반을 먼저 추가해 주세요.
+            </div>
+          )}
+
+          {busy && !records.length && (
             <div style={{ padding: "32px 0", textAlign: "center", color: T.muted }}>
-              파일을 읽고 기존 학생과 대조하는 중…
+              파일을 읽는 중…
             </div>
           )}
           {error && (
@@ -2260,13 +2366,126 @@ function RosterExcelImport({
             </div>
           )}
 
-          {preview && (
+          {!!groups.length && (
+            <div
+              style={{
+                border: `1px solid ${T.line}`,
+                borderRadius: 12,
+                padding: "12px 14px",
+                marginBottom: 14,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                  flexWrap: "wrap",
+                  marginBottom: 10,
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 800, color: T.ink, fontSize: 14 }}>반 선택</div>
+                  <div style={{ color: T.sub, fontSize: 12.5, marginTop: 2 }}>
+                    엑셀에서 나뉜 학생 묶음마다 등록할 기존 반을 직접 골라 주세요. 새 반은 만들지 않습니다.
+                  </div>
+                </div>
+                {groups.length > 1 && (
+                  <select
+                    style={{ ...inputBase, width: "auto", minWidth: 200 }}
+                    value=""
+                    disabled={busy}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (!value) return;
+                      setMapping(Object.fromEntries(groups.map((group) => [group.name, value])));
+                    }}
+                  >
+                    <option value="">모두 같은 반으로…</option>
+                    {subjectOptions}
+                  </select>
+                )}
+              </div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {groups.map((group) => {
+                  const pending = !decided(group.name);
+                  return (
+                    <div
+                      key={group.name}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div
+                        style={{
+                          flex: "1 1 260px",
+                          minWidth: 0,
+                          fontSize: 13.5,
+                          color: group.name ? T.ink : T.muted,
+                          fontWeight: 700,
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {groupLabel(group.name)}
+                        <span style={{ color: T.sub, fontWeight: 600, marginLeft: 6 }}>
+                          {group.students}명
+                        </span>
+                      </div>
+                      <span style={{ color: T.muted }}>→</span>
+                      <select
+                        style={{
+                          ...inputBase,
+                          flex: "0 1 280px",
+                          minWidth: 180,
+                          borderColor: pending ? T.warn : T.line,
+                          background: pending ? T.warnSoft : "#fff",
+                        }}
+                        value={pending ? "" : mapping[group.name]}
+                        disabled={busy}
+                        onChange={(e) =>
+                          setMapping((prev) => ({ ...prev, [group.name]: e.target.value }))
+                        }
+                      >
+                        <option value="">반 선택…</option>
+                        {subjectOptions}
+                        <option value={ROSTER_SKIP}>가져오지 않음</option>
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+              {!!undecided.length && (
+                <div style={{ color: T.warn, fontSize: 12.5, marginTop: 10 }}>
+                  반을 고르지 않은 엑셀 반이 {undecided.length}개 있습니다. 반을 고르거나
+                  &lsquo;가져오지 않음&rsquo;을 선택해야 반영할 수 있습니다.
+                </div>
+              )}
+            </div>
+          )}
+
+          {previewing && !preview && (
+            <div style={{ padding: "24px 0", textAlign: "center", color: T.muted }}>
+              기존 학생과 대조하는 중…
+            </div>
+          )}
+          {!!records.length && !mappedRecords.length && !busy && (
+            <div style={{ padding: "16px 0", textAlign: "center", color: T.muted, fontSize: 13.5 }}>
+              반을 고르면 기존·신규 학생 미리보기가 나타납니다.
+            </div>
+          )}
+
+          {preview && !!mappedRecords.length && (
             <>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
                 <Pill tone="primary">읽은 학생 {preview.summary.total}명</Pill>
                 <Pill tone="ok">기존 계정 {preview.summary.existing}명</Pill>
                 <Pill tone="primary">신규 계정 {preview.summary.newStudents}명</Pill>
                 <Pill tone={allErrors.length ? "warn" : "muted"}>오류 {allErrors.length}건</Pill>
+                {previewing && <Pill tone="muted">다시 대조하는 중…</Pill>}
               </div>
 
               <div
@@ -2362,9 +2581,12 @@ function RosterExcelImport({
                 }}
               >
                 <span style={{ fontSize: 12.5, color: T.sub }}>
-                  기존 계정 정보는 바꾸지 않습니다. 새 반명은 이 학기 반 목록에도 추가됩니다.
+                  기존 계정 정보는 바꾸지 않습니다. 반은 위에서 고른 기존 반으로만 등록됩니다.
                 </span>
-                <Btn disabled={busy || validCount === 0} onClick={commit}>
+                <Btn
+                  disabled={busy || previewing || !!undecided.length || validCount === 0}
+                  onClick={commit}
+                >
                   <Save size={16} /> {busy ? "반영 중…" : `${validCount}명 확정 반영`}
                 </Btn>
               </div>
@@ -2787,6 +3009,8 @@ function AdminStudents({
         open={importOpen}
         onClose={() => setImportOpen(false)}
         termId={termId}
+        subjects={subjects}
+        closedSubjects={closedSubjects}
         onImported={onImported}
       />
     </div>

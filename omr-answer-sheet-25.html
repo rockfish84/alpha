@@ -2,7 +2,7 @@
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
-    <title>테스트 답안지 — OMR 22문항 · 단답형 5문항</title>
+    <title>테스트 답안지 — OMR 30문항 · 단답형 5문항</title>
     <style>
       @page {
         size: A4 portrait;
@@ -174,20 +174,20 @@
 
       .omr-columns {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(3, 1fr);
         height: calc(100% - 9.5mm);
       }
 
-      .omr-column:first-child {
+      .omr-column:not(:last-child) {
         border-right: 0.3mm solid #d7e0ed;
       }
 
       .omr-row {
         display: grid;
-        grid-template-columns: 9mm repeat(5, 1fr);
+        grid-template-columns: 6.5mm repeat(5, 1fr);
         align-items: center;
-        height: 7.56mm;
-        padding: 0 2.3mm;
+        height: 8.32mm;
+        padding: 0 1mm;
         border-bottom: 0.25mm solid #e0e7f1;
       }
 
@@ -297,7 +297,6 @@
         <div class="topline">
           <div class="title-wrap">
             <h1 class="title">테스트 답안지</h1>
-            <span class="subtitle">OMR 22문항 · 단답형 5문항</span>
           </div>
           <div class="brand">DUBCO ALPHA CLINIC</div>
         </div>
@@ -324,26 +323,24 @@
         <div class="answer-layout">
           <section class="panel omr-panel">
             <div class="panel-head">
-              <span class="panel-title">객관식 · 1–22번</span>
-              <span class="panel-note">정답 번호의 원을 진하게 칠하세요</span>
+              <span class="panel-title">객관식 · 1–30번</span>
             </div>
             <div class="omr-columns">
               <div class="omr-column" data-start="1"></div>
-              <div class="omr-column" data-start="12"></div>
+              <div class="omr-column" data-start="11"></div>
+              <div class="omr-column" data-start="21"></div>
             </div>
           </section>
 
           <section class="panel short-panel">
             <div class="panel-head">
               <span class="panel-title">단답형 · 1–5번</span>
-              <span class="panel-note">답만 또박또박</span>
             </div>
             <div class="short-list"></div>
           </section>
         </div>
 
         <div class="footer">
-          <span class="footer-tag">MARKING GUIDE</span>
           <span><strong>객관식</strong>은 한 문항에 하나만 완전히 칠하고, <strong>단답형</strong>은 답란 안에 숫자·기호를 정확히 적어 주세요.</span>
         </div>
         <div class="cut-label">✂ 절 취 선</div>
@@ -358,7 +355,7 @@
         const fragment = template.content.cloneNode(true);
         fragment.querySelectorAll(".omr-column").forEach((column) => {
           const start = Number(column.dataset.start);
-          for (let no = start; no < start + 11; no += 1) {
+          for (let no = start; no < start + 10; no += 1) {
             const row = document.createElement("div");
             row.className = "omr-row";
             row.innerHTML = `<span class="qno">${no}</span>${[1, 2, 3, 4, 5]

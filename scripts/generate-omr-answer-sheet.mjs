@@ -9,7 +9,7 @@ import { resolve } from "node:path";
 const root = resolve(import.meta.dirname, "..");
 const sourcePath = resolve(root, "omr-answer-sheet-25.html");
 const outputPath = resolve(
-  process.argv[2] || resolve(root, "OMR 답안지 22문항+단답형5문항.pdf")
+  process.argv[2] || resolve(root, "OMR 답안지 30문항+단답형5문항.pdf")
 );
 const source = readFileSync(sourcePath, "utf8");
 const templateMatch = source.match(
@@ -18,7 +18,7 @@ const templateMatch = source.match(
 if (!templateMatch) throw new Error("답지 템플릿을 찾지 못했습니다.");
 
 const omrRows = (start) =>
-  Array.from({ length: 11 }, (_, index) => {
+  Array.from({ length: 10 }, (_, index) => {
     const no = start + index;
     const bubbles = [1, 2, 3, 4, 5]
       .map(
@@ -45,8 +45,12 @@ const makeSheet = () =>
       `<div class="omr-column" data-start="1">${omrRows(1)}</div>`
     )
     .replace(
-      '<div class="omr-column" data-start="12"></div>',
-      `<div class="omr-column" data-start="12">${omrRows(12)}</div>`
+      '<div class="omr-column" data-start="11"></div>',
+      `<div class="omr-column" data-start="11">${omrRows(11)}</div>`
+    )
+    .replace(
+      '<div class="omr-column" data-start="21"></div>',
+      `<div class="omr-column" data-start="21">${omrRows(21)}</div>`
     )
     .replace('<div class="short-list"></div>', `<div class="short-list">${shortRows}</div>`);
 

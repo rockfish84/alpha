@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { requireAdmin } from "@/lib/auth";
 import { dbConnect } from "@/lib/db";
-import { Enrollment, Student, Term } from "@/lib/models";
+import { Enrollment, Student } from "@/lib/models";
 import { ensureParent } from "@/lib/parents";
 import {
   consolidateRosterRecords,
@@ -39,8 +39,13 @@ type ImportPlan = {
   };
 };
 
-async function makePlan(termId: unknown, records: ImportRecord[]): Promise<ImportPlan> {
-  const consolidated = consolidateRosterRecords(records);
+async function makePlan(
+  termId: unknown,
+  termSubjects: readonly string[],
+  records: ImportRecord[]
+): Promise<ImportPlan> {
+  // 반은 이 학기에 이미 있는 반만 받는다. 엑셀 반명은 화면에서 기존 반으로 골라 바꿔 보낸다.
+  const consolidated = consolidateRosterRecords(records, termSubjects);
   // 퇴원 여부나 현재 학기 등록 여부와 관계없이 Student 전체에서 찾는다.
   // 그래야 쉬었다 돌아온 학생도 기존 계정을 그대로 쓴다.
   const students = await Student.find({})
@@ -123,6 +128,7 @@ async function makePlan(termId: unknown, records: ImportRecord[]): Promise<Impor
 // POST /api/admin/roster/import
 //   commit=false: DB 변경 없이 기존/신규/오류 미리보기
 //   commit=true:  같은 검사를 다시 한 뒤 정상 행만 현재 학기에 반영
+//   records[].subject 는 이 학기의 기존 반이어야 한다. 새 반은 만들지 않는다.
 export async function POST(req: Request) {
   const guard = await requireAdmin();
   if (!guard.ok) return guard.res;
@@ -147,7 +153,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "학기를 찾을 수 없습니다." }, { status: 400 });
   }
 
-  const plan = await makePlan(term._id, body.records as ImportRecord[]);
+  const termSubjects = ((term.subjects ?? []) as unknown[]).map(String);
+  if (!termSubjects.length) {
+    return NextResponse.json(
+      { error: "이 학기에 등록된 반이 없습니다. 학기 설정에서 반을 먼저 추가해 주세요." },
+      { status: 400 }
+    );
+  }
+
+  const plan = await makePlan(term._id, termSubjects, body.records as ImportRecord[]);
   if (!body.commit) return NextResponse.json(plan);
 
   const validRows = plan.rows.filter((row) => row.kind !== "error");
@@ -169,7 +183,6 @@ export async function POST(req: Request) {
   let createdStudents = 0;
   let newEnrollments = 0;
   let updatedEnrollments = 0;
-  const importedSubjects = new Set<string>();
 
   for (const row of validRows) {
     let student: any;
@@ -206,14 +219,8 @@ export async function POST(req: Request) {
       });
       newEnrollments++;
     }
-    row.subjects.forEach((subject) => importedSubjects.add(subject));
     await ensureParent(student);
   }
-
-  await Term.updateOne(
-    { _id: term._id },
-    { $addToSet: { subjects: { $each: [...importedSubjects] } } }
-  );
 
   return NextResponse.json({
     ok: true,
@@ -221,6 +228,5 @@ export async function POST(req: Request) {
     newEnrollments,
     updatedEnrollments,
     skipped: plan.summary.errors,
-    subjectsAdded: [...importedSubjects],
   });
 }
