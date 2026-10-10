@@ -70,6 +70,8 @@ export async function reissueParentPassword(
   parent.password = await bcrypt.hash(password, 10);
   parent.passwordSealed = seal(password);
   parent.selfChanged = true;
+  // 새 비밀번호는 아직 안내하지 않았으므로 다시 보내야 할 계정이 된다.
+  parent.noticeSentAt = null;
   await parent.save();
   return { username: parent.username, password };
 }

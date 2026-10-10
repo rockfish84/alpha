@@ -68,17 +68,51 @@ test("기존 반 이름은 공백까지 원래대로 저장한다", () => {
   assert.deepEqual(result.candidates[0].subjects, ["공수1,2  심화"]);
 });
 
+const sheetRow = (sheet: string, line: number, name: string, phone: string, subject: string) => ({
+  ...row(line, name, phone, subject),
+  sheet,
+});
+
+test("같은 이름의 반이 공백만 다르게 둘 있으면 고른 반 그대로 저장한다", () => {
+  const subjects = ["고2  확통", "고2 확통"];
+  for (const chosen of subjects) {
+    const result = consolidateRosterRecords([row(2, "김민수", "01012345678", chosen)], subjects);
+    assert.deepEqual(result.candidates[0].subjects, [chosen]);
+  }
+});
+
 test("엑셀 반 이름별로 학생 묶음을 만든다 (같은 학생은 한 번만 센다)", () => {
   const groups = rosterSubjectGroups([
-    row(2, "김민수", "01012345678", "[공수2]오현민T"),
-    row(3, "김 민수", "010-1234-5678", "[공수2]오현민T"),
-    row(4, "이영희", "01087654321", ""),
-    row(5, "박지민", "01011112222", "[확통]오현민T"),
+    sheetRow("A", 2, "김민수", "01012345678", "[공수2]오현민T"),
+    sheetRow("A", 3, "김 민수", "010-1234-5678", "[공수2]오현민T"),
+    sheetRow("A", 4, "이영희", "01087654321", ""),
+    sheetRow("B", 5, "박지민", "01011112222", "[확통]오현민T"),
   ]);
-  assert.deepEqual(groups, [
-    { name: "[공수2]오현민T", students: 1 },
-    { name: "", students: 1 },
-    { name: "[확통]오현민T", students: 1 },
+  assert.deepEqual(
+    groups.map((g) => [g.subject, g.sheet, g.students]),
+    [
+      ["[공수2]오현민T", "A", 1],
+      ["", "A", 1],
+      ["[확통]오현민T", "B", 1],
+    ]
+  );
+});
+
+test("반명이 없는 행은 시트마다 따로 묶는다", () => {
+  const records = [
+    sheetRow("공수2", 2, "김민수", "01012345678", ""),
+    sheetRow("확통", 2, "이영희", "01087654321", ""),
+  ];
+  const groups = rosterSubjectGroups(records);
+  assert.equal(groups.length, 2);
+  const mapped = applyRosterSubjectMap(
+    records,
+    { [groups[0].key]: "공수2", [groups[1].key]: "확통" },
+    ["공수2", "확통"]
+  );
+  assert.deepEqual(mapped.map((r) => [r.name, r.subject]), [
+    ["김민수", "공수2"],
+    ["이영희", "확통"],
   ]);
 });
 
@@ -89,9 +123,10 @@ test("고른 반으로 바꾸고, 고르지 않았거나 가져오지 않는 묶
     row(4, "박지민", "01011112222", "[확통]오현민T"),
     row(5, "최유리", "01033334444", "[미적1]오현민T"),
   ];
+  const keys = rosterSubjectGroups(records).map((g) => g.key);
   const mapped = applyRosterSubjectMap(
     records,
-    { "[공수2]오현민T": "공수2", "": "공수2", "[확통]오현민T": "skip", "[미적1]오현민T": "" },
+    { [keys[0]]: "공수2", [keys[1]]: "공수2", [keys[2]]: "skip", [keys[3]]: "" },
     ["공수2", "확통"]
   );
   assert.deepEqual(

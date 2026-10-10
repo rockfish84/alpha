@@ -212,6 +212,8 @@ const ParentSchema = new Schema(
     passwordSealed: { type: String, default: "" },
     // (예전 방식) 학부모가 직접 비밀번호를 바꿨는지
     selfChanged: { type: Boolean, default: false },
+    // 계정 안내 문자를 보낸 시각. 비밀번호를 재발급하면 비워서 다시 '미전송'이 된다.
+    noticeSentAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

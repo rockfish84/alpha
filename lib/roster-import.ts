@@ -47,10 +47,14 @@ export function consolidateRosterRecords(
 } {
   const byKey = new Map<string, ImportCandidate>();
   const errors: ImportInputError[] = [];
-  // 기존 반 이름은 공백까지 그대로 저장해야 하므로, 정리한 이름 → 원래 이름으로 찾는다.
-  const allowed = allowedSubjects
-    ? new Map(allowedSubjects.map((subject) => [clean(subject, 200), subject]))
-    : null;
+  // 기존 반 이름은 공백까지 그대로 저장한다. 고른 이름과 똑같은 반을 먼저 찾고,
+  // 없을 때만 공백을 정리한 이름으로 찾는다 (이름이 겹치면 앞쪽 반).
+  const exact = allowedSubjects ? new Set(allowedSubjects) : null;
+  const allowed = allowedSubjects ? new Map<string, string>() : null;
+  for (const subject of allowedSubjects ?? []) {
+    const key = clean(subject, 200);
+    if (!allowed!.has(key)) allowed!.set(key, subject);
+  }
 
   for (const raw of records.slice(0, 5000)) {
     const line = Number.isFinite(Number(raw?.line)) ? Number(raw.line) : 0;
@@ -61,7 +65,11 @@ export function consolidateRosterRecords(
     const school = clean(raw?.school, 100).replace(/\s/g, "");
     const grade = clean(raw?.grade, 20).replace(/\s/g, "");
     const rawSubject = clean(raw?.subject, 200);
-    const subject = allowed ? allowed.get(rawSubject) ?? "" : rawSubject;
+    const subject = !allowed
+      ? rawSubject
+      : exact!.has(String(raw?.subject ?? ""))
+      ? String(raw.subject)
+      : allowed.get(rawSubject) ?? "";
 
     if (!name) {
       errors.push({ source, reason: "학생 이름이 없습니다." });
@@ -140,26 +148,41 @@ export function nextRosterUsername(base: string, taken: Set<string>): string {
   return value;
 }
 
-/** 엑셀에서 읽은 반 이름 하나와 그 반의 학생 수. name 이 빈 문자열이면 반명을 못 읽은 행들이다. */
+/** 엑셀에서 한 반으로 묶인 학생들. 반명을 못 읽은 행은 시트별로 따로 묶는다. */
 export interface RosterSubjectGroup {
-  name: string;
+  key: string;
+  /** 엑셀에 적힌 반 이름 (없으면 빈 문자열) */
+  subject: string;
+  sheet: string;
   students: number;
+}
+
+/** 엑셀 행이 속한 묶음. 반명이 없으면 시트 이름으로 나눈다. */
+export function rosterGroupKey(record: Pick<ImportRecord, "subject" | "sheet">): string {
+  const subject = clean(record?.subject, 200);
+  return subject || `\u0001${clean(record?.sheet, 100)}`;
 }
 
 /** 엑셀 행들을 엑셀 반 이름별로 묶는다. 처음 나온 순서를 유지한다. */
 export function rosterSubjectGroups(records: ImportRecord[]): RosterSubjectGroup[] {
-  const groups = new Map<string, Set<string>>();
+  const groups = new Map<string, RosterSubjectGroup & { keys: Set<string> }>();
   for (const record of records) {
-    const name = clean(record?.subject, 200);
-    const keys = groups.get(name) ?? new Set<string>();
-    keys.add(rosterIdentityKey(record?.name, record?.phone));
-    groups.set(name, keys);
+    const key = rosterGroupKey(record);
+    const group = groups.get(key) ?? {
+      key,
+      subject: clean(record?.subject, 200),
+      sheet: clean(record?.sheet, 100),
+      students: 0,
+      keys: new Set<string>(),
+    };
+    group.keys.add(rosterIdentityKey(record?.name, record?.phone));
+    groups.set(key, group);
   }
-  return [...groups].map(([name, keys]) => ({ name, students: keys.size }));
+  return [...groups.values()].map(({ keys, ...group }) => ({ ...group, students: keys.size }));
 }
 
 /**
- * 엑셀 반 이름 → 선택한 기존 반으로 바꾼다. 선택하지 않았거나 목록에 없는 반의 행은 뺀다.
+ * 묶음 → 선택한 기존 반으로 바꾼다. 선택하지 않았거나 목록에 없는 반의 행은 뺀다.
  */
 export function applyRosterSubjectMap(
   records: ImportRecord[],
@@ -168,7 +191,7 @@ export function applyRosterSubjectMap(
 ): ImportRecord[] {
   const allowed = new Set(subjects);
   return records.flatMap((record) => {
-    const chosen = mapping[clean(record?.subject, 200)];
+    const chosen = mapping[rosterGroupKey(record)];
     return chosen && allowed.has(chosen) ? [{ ...record, subject: chosen }] : [];
   });
 }

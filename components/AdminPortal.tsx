@@ -34,10 +34,14 @@ import {
 } from "@/lib/constants";
 import { api } from "@/lib/api";
 import { parseRoster } from "@/lib/roster-excel";
+import { deliveredStudentIds } from "@/lib/parent-notice";
 import {
   applyRosterSubjectMap,
+  rosterGroupKey,
+  rosterIdentityKey,
   rosterSubjectGroups,
   type ImportRecord,
+  type RosterSubjectGroup,
 } from "@/lib/roster-import";
 import { datesInRange, getClinicDatesForSubject } from "@/lib/clinic-dates";
 import {
@@ -1648,6 +1652,12 @@ function fillNotice(
     .replaceAll("{사이트}", site);
 }
 
+/** 전송 시각 → "10/10" (브라우저 시간대) */
+function sentDayLabel(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
 function AdminParentNotice({ students }: { students: Student[] }) {
   // 진행 중인 학기 전체에서 모은 명단 (종료된 반 제외). 못 불러오면 지금 학기만 쓴다.
   const [roster, setRoster] = useState<Student[] | null>(null);
@@ -1710,6 +1720,9 @@ function AdminParentNotice({ students }: { students: Student[] }) {
   const [result, setResult] = useState<SendSummary | null>(null);
   const [smsReady, setSmsReady] = useState<boolean | null>(null);
   const [testTo, setTestTo] = useState<string | null>(null);
+  // 이 화면에서 새로 기록한 전송 시각 (학생 id → ISO, 빈 문자열이면 미전송으로 되돌림)
+  const [sentOverride, setSentOverride] = useState<Record<string, string>>({});
+  const [marking, setMarking] = useState(false);
 
   useEffect(() => {
     api
@@ -1733,6 +1746,10 @@ function AdminParentNotice({ students }: { students: Student[] }) {
   const ready = targets.filter((s) => s.parentUsername && s.parentPassword);
   const missing = targets.filter((s) => !s.parentUsername || !s.parentPassword);
   const noPhone = ready.filter((s) => !s.phone);
+  const sentAt = (s: Student) =>
+    s.id in sentOverride ? sentOverride[s.id] : s.parentNoticeSentAt ?? "";
+  // 아직 안내 문자를 보낸 적 없는 계정 (고를 수 있는 학생만)
+  const unsent = ready.filter((s) => s.phone && !sentAt(s));
 
   const copy = async (text: string, key: string) => {
     try {
@@ -1746,6 +1763,38 @@ function AdminParentNotice({ students }: { students: Student[] }) {
 
   const sendable = ready.filter((s) => s.phone && picked.has(s.id));
   const allPicked = ready.length > 0 && ready.every((s) => picked.has(s.id));
+  const unsentPicked =
+    unsent.length > 0 &&
+    unsent.every((s) => picked.has(s.id)) &&
+    sendable.length === unsent.length;
+
+  /** 전송 기록을 남기거나 지운다. 기록한 학생은 선택에서 뺀다. */
+  const recordSent = async (ids: string[], sent: boolean) => {
+    const res = await api.post("/api/admin/parent-notice", { students: ids, sent });
+    const at = sent ? String(res.sentAt ?? new Date().toISOString()) : "";
+    setSentOverride((prev) => ({ ...prev, ...Object.fromEntries(ids.map((id) => [id, at])) }));
+    setPicked((prev) => new Set([...prev].filter((id) => !ids.includes(id))));
+  };
+
+  /** 다른 프로그램으로 보냈거나 잘못 기록된 경우 직접 표시한다. 문자는 보내지 않는다. */
+  const markPicked = async (sent: boolean) => {
+    if (!sendable.length || marking || sending) return;
+    const message = sent
+      ? `선택한 ${sendable.length}명을 '전송함'으로 표시할까요?\n(문자는 보내지 않습니다)`
+      : `선택한 ${sendable.length}명의 전송 기록을 지우고 '미전송'으로 되돌릴까요?`;
+    if (!confirm(message)) return;
+    setMarking(true);
+    try {
+      await recordSent(
+        sendable.map((s) => s.id),
+        sent
+      );
+    } catch (e: any) {
+      alert(e?.message || "전송 기록을 저장하지 못했습니다.");
+    } finally {
+      setMarking(false);
+    }
+  };
 
   const toggle = (id: string) =>
     setPicked((prev) => {
@@ -1780,6 +1829,17 @@ function AdminParentNotice({ students }: { students: Student[] }) {
         (done, total) => setProgress({ done, total })
       );
       setResult(summary);
+      // 실제로 학부모에게 나간 학생만 '전송'으로 기록한다 (테스트 모드·실패 번호는 제외).
+      const delivered = deliveredStudentIds(sendable, summary);
+      if (delivered.length) {
+        try {
+          await recordSent(delivered, true);
+        } catch (e: any) {
+          alert(
+            `문자는 보냈지만 전송 기록을 남기지 못했습니다. 보낸 학생을 골라 '전송 완료로 표시'를 눌러 주세요.\n${e?.message ?? ""}`
+          );
+        }
+      }
     } catch (e: any) {
       alert(e?.message || "발송에 실패했습니다.");
     } finally {
@@ -1823,10 +1883,14 @@ function AdminParentNotice({ students }: { students: Student[] }) {
           대상: 진행 중인 학기의 <b>재원 학생</b>
           {loadNote ? ` — ${loadNote}` : ""}. <b>종료된 반</b>만 듣는 학생은 목록에서 빠집니다.
         </div>
+        <div style={{ fontWeight: 500, marginTop: 4 }}>
+          여기서 문자를 보내면 <b>전송</b>으로 기록됩니다. 다른 프로그램으로 보냈다면 학생을 고른 뒤{" "}
+          <b>전송 완료로 표시</b>를 누르세요. 학부모 비밀번호를 재발급하면 다시 <b>미전송</b>이 됩니다.
+        </div>
         {testTo && (
           <div style={{ color: T.warn, marginTop: 4 }}>
             지금은 테스트 모드입니다 — 모든 문자가 <b>{testTo}</b> 로만 갑니다
-            (.env 의 SMS_TEST_TO).
+            (.env 의 SMS_TEST_TO). 테스트 발송은 전송 기록을 남기지 않습니다.
           </div>
         )}
         {smsReady === false && (
@@ -1887,6 +1951,7 @@ function AdminParentNotice({ students }: { students: Student[] }) {
       >
         <Pill tone="primary">재원 {targets.length}명</Pill>
         <Pill tone="ok">안내 가능 {ready.length}명</Pill>
+        <Pill tone={unsent.length ? "warn" : "muted"}>미전송 {unsent.length}명</Pill>
         {missing.length > 0 && <Pill tone="bad">계정 없음 {missing.length}명</Pill>}
         {noPhone.length > 0 && <Pill tone="warn">번호 없음 {noPhone.length}명</Pill>}
         <div style={{ flex: 1 }} />
@@ -1915,6 +1980,17 @@ function AdminParentNotice({ students }: { students: Student[] }) {
         <Btn
           variant="outline"
           size="sm"
+          disabled={!unsent.length || sending}
+          onClick={() =>
+            setPicked(unsentPicked ? new Set() : new Set(unsent.map((s) => s.id)))
+          }
+          title="아직 안내 문자를 보낸 적 없는 계정만 모두 고릅니다."
+        >
+          {unsentPicked ? "선택 해제" : `미전송 ${unsent.length}명 전체 선택`}
+        </Btn>
+        <Btn
+          variant="outline"
+          size="sm"
           disabled={!ready.length}
           onClick={() =>
             setPicked(allPicked ? new Set() : new Set(ready.map((s) => s.id)))
@@ -1934,6 +2010,40 @@ function AdminParentNotice({ students }: { students: Student[] }) {
             : `선택한 ${sendable.length}명에게 문자 보내기`}
         </Btn>
       </div>
+
+      {sendable.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            marginBottom: 12,
+            fontSize: 12.5,
+            color: T.sub,
+          }}
+        >
+          선택한 {sendable.length}명:
+          <Btn
+            variant="ghost"
+            size="xs"
+            disabled={marking || sending}
+            onClick={() => markPicked(true)}
+            title="다른 프로그램으로 이미 보낸 경우. 문자는 보내지 않습니다."
+          >
+            전송 완료로 표시
+          </Btn>
+          <Btn
+            variant="ghost"
+            size="xs"
+            disabled={marking || sending}
+            onClick={() => markPicked(false)}
+          >
+            미전송으로 되돌리기
+          </Btn>
+        </div>
+      )}
 
       <SendResultView result={result} nameByNum={nameByNum} />
 
@@ -1960,10 +2070,10 @@ function AdminParentNotice({ students }: { students: Student[] }) {
 
       <Card style={{ overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 780 }}>
             <thead>
               <tr>
-                {["", "학생", "학부모 번호", "아이디", "비밀번호", "안내문", ""].map((h, i) => (
+                {["", "학생", "학부모 번호", "아이디", "비밀번호", "전송", "안내문", ""].map((h, i) => (
                   <th
                     key={`${h}-${i}`}
                     style={{
@@ -1985,6 +2095,7 @@ function AdminParentNotice({ students }: { students: Student[] }) {
               {targets.map((s) => {
                 const ok = !!(s.parentUsername && s.parentPassword);
                 const text = fillNotice(template, s, site);
+                const sent = sentAt(s);
                 return (
                   <tr
                     key={s.id}
@@ -2030,6 +2141,20 @@ function AdminParentNotice({ students }: { students: Student[] }) {
                     <td style={{ padding: "10px 14px", fontFamily: "monospace" }}>
                       {s.parentPassword || (
                         <span style={{ color: T.bad }}>재발급 필요</span>
+                      )}
+                    </td>
+                    <td style={{ padding: "10px 14px", whiteSpace: "nowrap", fontSize: 12.5 }}>
+                      {sent ? (
+                        <span
+                          style={{ color: T.ok, fontWeight: 700 }}
+                          title={new Date(sent).toLocaleString("ko-KR")}
+                        >
+                          ✓ {sentDayLabel(sent)}
+                        </span>
+                      ) : ok ? (
+                        <span style={{ color: T.warn, fontWeight: 700 }}>미전송</span>
+                      ) : (
+                        <span style={{ color: T.muted }}>—</span>
                       )}
                     </td>
                     <td
@@ -2127,6 +2252,7 @@ function RosterExcelImport({
     newEnrollments: number;
     updatedEnrollments: number;
     skipped: number;
+    notImported: number;
   }>(null);
   const previewSeq = useRef(0);
 
@@ -2138,16 +2264,43 @@ function RosterExcelImport({
   const closedList = termSubjects.filter((sub) => closedSet.has(sub));
 
   const groups = useMemo(() => rosterSubjectGroups(records), [records]);
-  const decided = (name: string) => {
-    const value = mapping[name];
+  const decided = (key: string) => {
+    const value = mapping[key];
     return value === ROSTER_SKIP || termSubjects.includes(value);
   };
-  const undecided = groups.filter((group) => !decided(group.name));
-  const skippedGroups = groups.filter((group) => mapping[group.name] === ROSTER_SKIP);
+  const undecided = groups.filter((group) => !decided(group.key));
   const mappedRecords = useMemo(
     () => applyRosterSubjectMap(records, mapping, termSubjects),
     [records, mapping, termSubjects]
   );
+  // '가져오지 않음'만 고른 학생 수 (다른 묶음으로 들어가는 학생은 세지 않는다)
+  const notImported = useMemo(() => {
+    const mapped = new Set(mappedRecords.map((r) => rosterIdentityKey(r.name, r.phone)));
+    const left = new Set(
+      records
+        .filter((r) => mapping[rosterGroupKey(r)] === ROSTER_SKIP)
+        .map((r) => rosterIdentityKey(r.name, r.phone))
+    );
+    return [...left].filter((key) => !mapped.has(key)).length;
+  }, [records, mapping, mappedRecords]);
+
+  const reset = () => {
+    previewSeq.current++;
+    setFileName("");
+    setRecords([]);
+    setMapping({});
+    setParseErrors([]);
+    setPreview(null);
+    setPreviewing(false);
+    setDone(null);
+    setError("");
+  };
+  // 반영을 마친 뒤 닫으면 처음 화면으로 돌려 다음 파일을 바로 올릴 수 있게 한다.
+  const close = () => {
+    if (busy) return;
+    if (done) reset();
+    onClose();
+  };
 
   // 반을 고를 때마다 서버에서 기존/신규/오류를 다시 맞춰 본다. 늦게 온 이전 응답은 버린다.
   useEffect(() => {
@@ -2176,15 +2329,8 @@ function RosterExcelImport({
   }, [mappedRecords, termId, done]);
 
   const chooseFile = async (file: File) => {
-    previewSeq.current++;
+    reset();
     setFileName(file.name);
-    setRecords([]);
-    setMapping({});
-    setParseErrors([]);
-    setPreview(null);
-    setPreviewing(false);
-    setDone(null);
-    setError("");
     setBusy(true);
     try {
       const xlsx = await import("xlsx");
@@ -2245,10 +2391,8 @@ function RosterExcelImport({
       });
       setDone({
         ...result,
-        skipped:
-          Number(result.skipped ?? 0) +
-          parseErrors.length +
-          (records.length - mappedRecords.length),
+        skipped: Number(result.skipped ?? 0) + parseErrors.length,
+        notImported,
       });
       await onImported();
     } catch (e: any) {
@@ -2258,13 +2402,10 @@ function RosterExcelImport({
     }
   };
 
-  const groupLabel = (name: string) => name || "반명 없음";
+  const groupLabel = (group: RosterSubjectGroup) =>
+    group.subject || (group.sheet ? `${group.sheet} 시트 · 반명 없음` : "반명 없음");
   const allErrors = [
     ...parseErrors,
-    ...skippedGroups.map((group) => ({
-      source: `엑셀 반 ${groupLabel(group.name)}`,
-      reason: `가져오지 않음으로 선택 (${group.students}명)`,
-    })),
     ...(preview?.errors ?? []),
     ...(preview?.rows
       .filter((row) => row.kind === "error")
@@ -2293,7 +2434,7 @@ function RosterExcelImport({
   );
 
   return (
-    <Modal open={open} onClose={busy ? () => {} : onClose} title="엑셀 명단 가져오기" width={940}>
+    <Modal open={open} onClose={close} title="엑셀 명단 가져오기" width={940}>
       <input
         ref={inputRef}
         type="file"
@@ -2399,7 +2540,7 @@ function RosterExcelImport({
                     onChange={(e) => {
                       const value = e.target.value;
                       if (!value) return;
-                      setMapping(Object.fromEntries(groups.map((group) => [group.name, value])));
+                      setMapping(Object.fromEntries(groups.map((group) => [group.key, value])));
                     }}
                   >
                     <option value="">모두 같은 반으로…</option>
@@ -2409,10 +2550,10 @@ function RosterExcelImport({
               </div>
               <div style={{ display: "grid", gap: 8 }}>
                 {groups.map((group) => {
-                  const pending = !decided(group.name);
+                  const pending = !decided(group.key);
                   return (
                     <div
-                      key={group.name}
+                      key={group.key}
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -2425,12 +2566,12 @@ function RosterExcelImport({
                           flex: "1 1 260px",
                           minWidth: 0,
                           fontSize: 13.5,
-                          color: group.name ? T.ink : T.muted,
+                          color: group.subject ? T.ink : T.muted,
                           fontWeight: 700,
                           overflowWrap: "anywhere",
                         }}
                       >
-                        {groupLabel(group.name)}
+                        {groupLabel(group)}
                         <span style={{ color: T.sub, fontWeight: 600, marginLeft: 6 }}>
                           {group.students}명
                         </span>
@@ -2444,10 +2585,10 @@ function RosterExcelImport({
                           borderColor: pending ? T.warn : T.line,
                           background: pending ? T.warnSoft : "#fff",
                         }}
-                        value={pending ? "" : mapping[group.name]}
+                        value={pending ? "" : mapping[group.key]}
                         disabled={busy}
                         onChange={(e) =>
-                          setMapping((prev) => ({ ...prev, [group.name]: e.target.value }))
+                          setMapping((prev) => ({ ...prev, [group.key]: e.target.value }))
                         }
                       >
                         <option value="">반 선택…</option>
@@ -2485,6 +2626,7 @@ function RosterExcelImport({
                 <Pill tone="ok">기존 계정 {preview.summary.existing}명</Pill>
                 <Pill tone="primary">신규 계정 {preview.summary.newStudents}명</Pill>
                 <Pill tone={allErrors.length ? "warn" : "muted"}>오류 {allErrors.length}건</Pill>
+                {!!notImported && <Pill tone="muted">가져오지 않음 {notImported}명</Pill>}
                 {previewing && <Pill tone="muted">다시 대조하는 중…</Pill>}
               </div>
 
@@ -2600,9 +2742,10 @@ function RosterExcelImport({
           </div>
           <div style={{ color: T.sub, lineHeight: 1.8, marginBottom: 18 }}>
             신규 계정 {done.createdStudents}명 · 새 학기 등록 {done.newEnrollments}명 · 기존 등록 반 추가 {done.updatedEnrollments}명
+            {!!done.notImported && <div>가져오지 않음으로 고른 {done.notImported}명은 제외했습니다.</div>}
             {!!done.skipped && <div>오류 {done.skipped}건은 반영하지 않았습니다.</div>}
           </div>
-          <Btn onClick={onClose}>확인</Btn>
+          <Btn onClick={close}>확인</Btn>
         </div>
       )}
     </Modal>

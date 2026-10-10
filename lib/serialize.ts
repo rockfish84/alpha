@@ -34,6 +34,8 @@ export function serializeRoster(enr: any, stu: any, parent?: any) {
     // 관리자 전용 응답에서만 쓰인다 (requireAdmin 뒤).
     parentUsername: (parent?.username ?? "") as string,
     parentPassword: readParentPassword(parent),
+    // 계정 안내 문자를 보낸 시각 (ISO). 보낸 적 없으면 빈 문자열.
+    parentNoticeSentAt: parent?.noticeSentAt ? new Date(parent.noticeSentAt).toISOString() : "",
     // 관리자 학교 성적 탭에서 조회할 학생의 학교 과목 목록.
     schoolExamResults: serializeSchoolExamResults(enr.schoolExamResults),
   };

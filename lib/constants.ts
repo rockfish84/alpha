@@ -90,6 +90,7 @@ export interface Student {
   school?: string; // 재학 중인 학교
   parentUsername?: string; // 학원이 발급한 학부모 아이디 (user001 …)
   parentPassword?: string; // 학원이 발급한 학부모 비밀번호 (관리자 화면 전용)
+  parentNoticeSentAt?: string; // 학부모 계정 안내를 보낸 시각 (ISO, 안 보냈으면 빈 문자열)
   grade: string;
   status: "재원" | "퇴원";
   subjects: string[];
