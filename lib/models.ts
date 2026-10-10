@@ -212,8 +212,14 @@ const ParentSchema = new Schema(
     passwordSealed: { type: String, default: "" },
     // (예전 방식) 학부모가 직접 비밀번호를 바꿨는지
     selfChanged: { type: Boolean, default: false },
-    // 계정 안내 문자를 보낸 시각. 비밀번호를 재발급하면 비워서 다시 '미전송'이 된다.
+    // 계정 안내 문자를 보낸 시각과 받은 번호(숫자만). 비밀번호를 재발급하면 비우고,
+    // 학부모 번호가 바뀌면 새 번호로는 안 보낸 것으로 본다 → 다시 '미전송'.
     noticeSentAt: { type: Date, default: null },
+    noticeSentTo: { type: String, default: "" },
+    // 전송 기록을 믿을 수 있는 계정인지. 기록을 남기기 전에 만든 계정은 이 값이 없어서
+    // 보냈는지 알 수 없다('기록 없음'). 기본값을 두지 않는다 — 두면 예전 계정을 불러와
+    // 저장할 때 값이 채워져 '미전송'으로 바뀐다.
+    noticeTracked: { type: Boolean },
   },
   { timestamps: true }
 );

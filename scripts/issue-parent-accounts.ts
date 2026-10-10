@@ -144,6 +144,7 @@ async function main() {
       // 관리자 화면에서 다시 볼 수 있도록 사본도 함께 저장한다
       passwordSealed: seal(r.password),
       selfChanged: true, // 학생 계정과 연동하지 않는다
+      noticeTracked: true, // 새 비밀번호는 아직 안내하지 않았다
     });
   }
 

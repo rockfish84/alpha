@@ -1,6 +1,7 @@
 import { isoDate } from "./date";
 import { serializeSchoolExamResults } from "./school-exams";
 import { readParentPassword } from "./parents";
+import { noticeSentAtFor, noticeUnknown } from "./parent-notice";
 
 /** Mongoose doc (lean or hydrated) -> plain client shape. */
 export function serializeStudent(doc: any) {
@@ -34,8 +35,10 @@ export function serializeRoster(enr: any, stu: any, parent?: any) {
     // 관리자 전용 응답에서만 쓰인다 (requireAdmin 뒤).
     parentUsername: (parent?.username ?? "") as string,
     parentPassword: readParentPassword(parent),
-    // 계정 안내 문자를 보낸 시각 (ISO). 보낸 적 없으면 빈 문자열.
-    parentNoticeSentAt: parent?.noticeSentAt ? new Date(parent.noticeSentAt).toISOString() : "",
+    // 계정 안내 문자를 지금 번호로 보낸 시각 (ISO). 보낸 적 없으면 빈 문자열.
+    parentNoticeSentAt: noticeSentAtFor(parent, stu.phone),
+    // 기록을 남기기 전에 만든 계정이라 보냈는지 알 수 없음
+    parentNoticeUnknown: noticeUnknown(parent),
     // 관리자 학교 성적 탭에서 조회할 학생의 학교 과목 목록.
     schoolExamResults: serializeSchoolExamResults(enr.schoolExamResults),
   };

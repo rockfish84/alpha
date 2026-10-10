@@ -56,6 +56,8 @@ export async function ensureParent(
     passwordSealed: seal(password),
     // 학생 계정과 연동하지 않는다 (학생이 비밀번호를 바꿔도 따라가지 않음)
     selfChanged: true,
+    // 새 계정은 아직 안내하지 않은 것이 확실하다
+    noticeTracked: true,
   });
   return { parent, username, password };
 }
@@ -72,6 +74,8 @@ export async function reissueParentPassword(
   parent.selfChanged = true;
   // 새 비밀번호는 아직 안내하지 않았으므로 다시 보내야 할 계정이 된다.
   parent.noticeSentAt = null;
+  parent.noticeSentTo = "";
+  parent.noticeTracked = true;
   await parent.save();
   return { username: parent.username, password };
 }

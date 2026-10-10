@@ -91,6 +91,7 @@ export interface Student {
   parentUsername?: string; // 학원이 발급한 학부모 아이디 (user001 …)
   parentPassword?: string; // 학원이 발급한 학부모 비밀번호 (관리자 화면 전용)
   parentNoticeSentAt?: string; // 학부모 계정 안내를 보낸 시각 (ISO, 안 보냈으면 빈 문자열)
+  parentNoticeUnknown?: boolean; // 전송 기록을 남기기 전의 계정이라 보냈는지 알 수 없음
   grade: string;
   status: "재원" | "퇴원";
   subjects: string[];

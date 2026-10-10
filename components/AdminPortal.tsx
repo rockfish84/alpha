@@ -34,7 +34,11 @@ import {
 } from "@/lib/constants";
 import { api } from "@/lib/api";
 import { parseRoster } from "@/lib/roster-excel";
-import { deliveredStudentIds } from "@/lib/parent-notice";
+import {
+  deliveredStudentIds,
+  noticePhoneOk,
+  type NoticeSkipReason,
+} from "@/lib/parent-notice";
 import {
   applyRosterSubjectMap,
   rosterGroupKey,
@@ -1658,14 +1662,50 @@ function sentDayLabel(iso: string): string {
   return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-function AdminParentNotice({ students }: { students: Student[] }) {
+/**
+ * 학부모 계정 안내 화면의 발송 상태 (고른 학생 · 발송 중 · 결과 · 이 화면에서 남긴 전송 기록).
+ * 발송 도중 탭을 옮겨 화면이 다시 그려져도 이어지도록 AdminPortal 이 들고 있는다.
+ */
+function useParentNoticeSession() {
+  // 학생 id → { 전송 시각(빈 문자열이면 미전송), 기록한 때 }. 그 뒤에 불러온 명단이 있으면 명단이 이긴다.
+  const [override, setOverride] = useState<Record<string, { at: string; recordedAt: number }>>({});
+  const [sending, setSending] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [result, setResult] = useState<SendSummary | null>(null);
+  const record = (sentAt: Record<string, string>) => {
+    const recordedAt = Date.now();
+    setOverride((prev) => ({
+      ...prev,
+      ...Object.fromEntries(Object.entries(sentAt).map(([id, at]) => [id, { at, recordedAt }])),
+    }));
+  };
+  /** since 이후에 시작한 불러오기가 끝났을 때: 그 전에 남긴 기록은 새 명단에 이미 들어 있다. */
+  const dropBefore = (since: number) =>
+    setOverride((prev) =>
+      Object.fromEntries(Object.entries(prev).filter(([, v]) => v.recordedAt >= since))
+    );
+  return { override, record, dropBefore, sending, setSending, picked, setPicked, result, setResult };
+}
+
+type ParentNoticeSession = ReturnType<typeof useParentNoticeSession>;
+
+function AdminParentNotice({
+  students,
+  session,
+}: {
+  students: Student[];
+  session: ParentNoticeSession;
+}) {
+  const { picked, setPicked, result, setResult, sending } = session;
   // 진행 중인 학기 전체에서 모은 명단 (종료된 반 제외). 못 불러오면 지금 학기만 쓴다.
   const [roster, setRoster] = useState<Student[] | null>(null);
+  const [rosterStatus, setRosterStatus] = useState<"loading" | "ready" | "failed">("loading");
   const [loadNote, setLoadNote] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const startedAt = Date.now();
       try {
         const terms: TermInfo[] = await api.get("/api/admin/terms");
         const active = terms.filter((t) => t.active);
@@ -1696,10 +1736,14 @@ function AdminParentNotice({ students }: { students: Student[] }) {
             );
           }
         }
+        session.dropBefore(startedAt);
         setRoster([...merged.values()]);
         setLoadNote(names.join(" · "));
+        setRosterStatus("ready");
       } catch {
-        if (!cancelled) setRoster(null);
+        if (cancelled) return;
+        setRoster(null);
+        setRosterStatus("failed");
       }
     })();
     return () => {
@@ -1713,15 +1757,10 @@ function AdminParentNotice({ students }: { students: Student[] }) {
   const [site, setSite] = useState(NOTICE_SITE);
   const [q, setQ] = useState("");
   const [copied, setCopied] = useState("");
-  // 보낼 학생 (직접 골라야 나간다 — 실수로 전체 발송되지 않도록)
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [sending, setSending] = useState(false);
+  // 보낼 학생(picked)은 직접 골라야 나간다 — 실수로 전체 발송되지 않도록
   const [progress, setProgress] = useState({ done: 0, total: 0 });
-  const [result, setResult] = useState<SendSummary | null>(null);
   const [smsReady, setSmsReady] = useState<boolean | null>(null);
   const [testTo, setTestTo] = useState<string | null>(null);
-  // 이 화면에서 새로 기록한 전송 시각 (학생 id → ISO, 빈 문자열이면 미전송으로 되돌림)
-  const [sentOverride, setSentOverride] = useState<Record<string, string>>({});
   const [marking, setMarking] = useState(false);
 
   useEffect(() => {
@@ -1745,11 +1784,18 @@ function AdminParentNotice({ students }: { students: Student[] }) {
   );
   const ready = targets.filter((s) => s.parentUsername && s.parentPassword);
   const missing = targets.filter((s) => !s.parentUsername || !s.parentPassword);
-  const noPhone = ready.filter((s) => !s.phone);
-  const sentAt = (s: Student) =>
-    s.id in sentOverride ? sentOverride[s.id] : s.parentNoticeSentAt ?? "";
+  // 서버가 형식이 틀린 번호는 조용히 버리므로, 보낼 수 있는 번호만 고르게 한다.
+  const canText = (s: Student) => noticePhoneOk(s.phone);
+  const noPhone = ready.filter((s) => !canText(s));
+  const sentAt = (s: Student) => session.override[s.id]?.at ?? s.parentNoticeSentAt ?? "";
+  // 기록을 남기기 전에 만든 계정이라 보냈는지 알 수 없음 (관리자가 전송/미전송으로 정리해야 한다)
+  const unknown = (s: Student) =>
+    !session.override[s.id] && !!s.parentNoticeUnknown && !s.parentNoticeSentAt;
   // 아직 안내 문자를 보낸 적 없는 계정 (고를 수 있는 학생만)
-  const unsent = ready.filter((s) => s.phone && !sentAt(s));
+  const unsent = ready.filter((s) => canText(s) && !sentAt(s) && !unknown(s));
+  const unknownList = ready.filter((s) => canText(s) && unknown(s));
+  // 명단을 다 불러오기 전에는 전송 기록이 오래됐을 수 있어 '미전송 전체 선택'을 막는다.
+  const recordsLoading = rosterStatus === "loading";
 
   const copy = async (text: string, key: string) => {
     try {
@@ -1761,19 +1807,47 @@ function AdminParentNotice({ students }: { students: Student[] }) {
     }
   };
 
-  const sendable = ready.filter((s) => s.phone && picked.has(s.id));
+  const sendable = ready.filter((s) => canText(s) && picked.has(s.id));
   const allPicked = ready.length > 0 && ready.every((s) => picked.has(s.id));
   const unsentPicked =
     unsent.length > 0 &&
     unsent.every((s) => picked.has(s.id)) &&
     sendable.length === unsent.length;
 
-  /** 전송 기록을 남기거나 지운다. 기록한 학생은 선택에서 뺀다. */
-  const recordSent = async (ids: string[], sent: boolean) => {
-    const res = await api.post("/api/admin/parent-notice", { students: ids, sent });
-    const at = sent ? String(res.sentAt ?? new Date().toISOString()) : "";
-    setSentOverride((prev) => ({ ...prev, ...Object.fromEntries(ids.map((id) => [id, at])) }));
-    setPicked((prev) => new Set([...prev].filter((id) => !ids.includes(id))));
+  /**
+   * 전송 기록을 남기거나 지운다. 기록한 학생은 선택에서 뺀다.
+   * 화면에 보인 비밀번호를 함께 보내, 그 사이 재발급된 계정은 서버가 기록하지 않는다(skipped).
+   */
+  const recordSent = async (
+    list: Student[],
+    sent: boolean
+  ): Promise<{ id: string; reason: NoticeSkipReason }[]> => {
+    const res = await api.post("/api/admin/parent-notice", {
+      students: list.map((s) => ({
+        id: s.id,
+        password: s.parentPassword ?? "",
+        phone: s.phone ?? "",
+      })),
+      sent,
+    });
+    const recorded: string[] = Array.isArray(res.recorded) ? res.recorded : [];
+    const at = sent ? String(res.sentAt || new Date().toISOString()) : "";
+    session.record(Object.fromEntries(recorded.map((id) => [id, at])));
+    setPicked((prev) => new Set([...prev].filter((id) => !recorded.includes(id))));
+    return Array.isArray(res.skipped) ? res.skipped : [];
+  };
+
+  const skippedNote = (skipped: { id: string; reason: NoticeSkipReason }[]) => {
+    const name = (id: string) => pool.find((s) => s.id === id)?.name ?? id;
+    const reissued = skipped.filter((x) => x.reason === "password").map((x) => name(x.id));
+    const changed = skipped.filter((x) => x.reason !== "password").map((x) => name(x.id));
+    return [
+      reissued.length ? `학부모 비밀번호가 그 사이 재발급된 학생: ${reissued.join(", ")}` : "",
+      changed.length ? `학부모 번호나 계정이 바뀐 학생: ${changed.join(", ")}` : "",
+      "이 학생들은 '전송'으로 기록하지 않았습니다. 새로고침한 뒤 다시 확인해 주세요.",
+    ]
+      .filter(Boolean)
+      .join("\n");
   };
 
   /** 다른 프로그램으로 보냈거나 잘못 기록된 경우 직접 표시한다. 문자는 보내지 않는다. */
@@ -1781,14 +1855,12 @@ function AdminParentNotice({ students }: { students: Student[] }) {
     if (!sendable.length || marking || sending) return;
     const message = sent
       ? `선택한 ${sendable.length}명을 '전송함'으로 표시할까요?\n(문자는 보내지 않습니다)`
-      : `선택한 ${sendable.length}명의 전송 기록을 지우고 '미전송'으로 되돌릴까요?`;
+      : `선택한 ${sendable.length}명을 '미전송'으로 표시할까요?\n(전송 기록이 있으면 지웁니다)`;
     if (!confirm(message)) return;
     setMarking(true);
     try {
-      await recordSent(
-        sendable.map((s) => s.id),
-        sent
-      );
+      const skipped = await recordSent(sendable, sent);
+      if (skipped.length) alert(skippedNote(skipped));
     } catch (e: any) {
       alert(e?.message || "전송 기록을 저장하지 못했습니다.");
     } finally {
@@ -1809,14 +1881,18 @@ function AdminParentNotice({ students }: { students: Student[] }) {
     if (!sendable.length || sending) return;
     const names = sendable.map((s) => s.name).join(", ");
     const where = testTo ? `\n\n※ 테스트 번호(${testTo})로만 발송됩니다.` : "";
+    const unknownPicked = sendable.filter(unknown).length;
+    const caution = unknownPicked
+      ? `\n\n※ 이 중 ${unknownPicked}명은 전송 기록이 없는 예전 계정입니다. 이미 받은 학부모에게 다시 갈 수 있습니다.`
+      : "";
     if (
       !confirm(
-        `${sendable.length}명에게 학부모 계정 안내 문자를 보냅니다.\n\n${names}${where}\n\n보낼까요?`
+        `${sendable.length}명에게 학부모 계정 안내 문자를 보냅니다.\n\n${names}${where}${caution}\n\n보낼까요?`
       )
     ) {
       return;
     }
-    setSending(true);
+    session.setSending(true);
     setResult(null);
     setProgress({ done: 0, total: sendable.length });
     try {
@@ -1833,17 +1909,23 @@ function AdminParentNotice({ students }: { students: Student[] }) {
       const delivered = deliveredStudentIds(sendable, summary);
       if (delivered.length) {
         try {
-          await recordSent(delivered, true);
+          const skipped = await recordSent(
+            sendable.filter((s) => delivered.includes(s.id)),
+            true
+          );
+          if (skipped.length) alert(skippedNote(skipped));
         } catch (e: any) {
+          // 실제로 나간 학생만 골라 두어, '전송 완료로 표시' 한 번으로 바로잡을 수 있게 한다.
+          setPicked(new Set(delivered));
           alert(
-            `문자는 보냈지만 전송 기록을 남기지 못했습니다. 보낸 학생을 골라 '전송 완료로 표시'를 눌러 주세요.\n${e?.message ?? ""}`
+            `문자는 보냈지만 전송 기록을 남기지 못했습니다. 실제로 보낸 ${delivered.length}명만 골라 두었으니 '전송 완료로 표시'를 눌러 주세요.\n${e?.message ?? ""}`
           );
         }
       }
     } catch (e: any) {
       alert(e?.message || "발송에 실패했습니다.");
     } finally {
-      setSending(false);
+      session.setSending(false);
     }
   };
 
@@ -1885,8 +1967,14 @@ function AdminParentNotice({ students }: { students: Student[] }) {
         </div>
         <div style={{ fontWeight: 500, marginTop: 4 }}>
           여기서 문자를 보내면 <b>전송</b>으로 기록됩니다. 다른 프로그램으로 보냈다면 학생을 고른 뒤{" "}
-          <b>전송 완료로 표시</b>를 누르세요. 학부모 비밀번호를 재발급하면 다시 <b>미전송</b>이 됩니다.
+          <b>전송 완료로 표시</b>를 누르세요. 학부모 비밀번호를 재발급하거나 학부모 번호를 바꾸면 다시{" "}
+          <b>미전송</b>이 됩니다.
         </div>
+        {rosterStatus === "failed" && (
+          <div style={{ color: T.bad, marginTop: 4 }}>
+            진행 중인 학기 명단을 불러오지 못해 지금 고른 학기 학생만 보입니다. 새로고침해 주세요.
+          </div>
+        )}
         {testTo && (
           <div style={{ color: T.warn, marginTop: 4 }}>
             지금은 테스트 모드입니다 — 모든 문자가 <b>{testTo}</b> 로만 갑니다
@@ -1951,9 +2039,14 @@ function AdminParentNotice({ students }: { students: Student[] }) {
       >
         <Pill tone="primary">재원 {targets.length}명</Pill>
         <Pill tone="ok">안내 가능 {ready.length}명</Pill>
-        <Pill tone={unsent.length ? "warn" : "muted"}>미전송 {unsent.length}명</Pill>
+        <Pill tone={recordsLoading ? "muted" : unsent.length ? "warn" : "muted"}>
+          {recordsLoading ? "전송 기록 확인 중…" : `미전송 ${unsent.length}명`}
+        </Pill>
+        {!recordsLoading && unknownList.length > 0 && (
+          <Pill tone="muted">기록 없음 {unknownList.length}명</Pill>
+        )}
         {missing.length > 0 && <Pill tone="bad">계정 없음 {missing.length}명</Pill>}
-        {noPhone.length > 0 && <Pill tone="warn">번호 없음 {noPhone.length}명</Pill>}
+        {noPhone.length > 0 && <Pill tone="warn">번호 없음·오류 {noPhone.length}명</Pill>}
         <div style={{ flex: 1 }} />
         <Btn
           variant="outline"
@@ -1980,7 +2073,7 @@ function AdminParentNotice({ students }: { students: Student[] }) {
         <Btn
           variant="outline"
           size="sm"
-          disabled={!unsent.length || sending}
+          disabled={!unsent.length || sending || recordsLoading}
           onClick={() =>
             setPicked(unsentPicked ? new Set() : new Set(unsent.map((s) => s.id)))
           }
@@ -1991,7 +2084,7 @@ function AdminParentNotice({ students }: { students: Student[] }) {
         <Btn
           variant="outline"
           size="sm"
-          disabled={!ready.length}
+          disabled={!ready.length || sending}
           onClick={() =>
             setPicked(allPicked ? new Set() : new Set(ready.map((s) => s.id)))
           }
@@ -2006,10 +2099,45 @@ function AdminParentNotice({ students }: { students: Student[] }) {
         >
           <Send size={14} />
           {sending
-            ? `보내는 중… ${progress.done}/${progress.total}`
+            ? progress.total
+              ? `보내는 중… ${progress.done}/${progress.total}`
+              : "보내는 중…"
             : `선택한 ${sendable.length}명에게 문자 보내기`}
         </Btn>
       </div>
+
+      {!recordsLoading && unknownList.length > 0 && (
+        <div
+          style={{
+            padding: "10px 13px",
+            background: T.warnSoft,
+            color: T.warn,
+            borderRadius: 9,
+            fontSize: 12.5,
+            fontWeight: 600,
+            marginBottom: 12,
+            lineHeight: 1.6,
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ flex: "1 1 320px" }}>
+            전송 기록을 남기기 전에 만든 계정 <b>{unknownList.length}명</b>은 안내를 보냈는지 알 수
+            없어 <b>미전송 전체 선택</b>에서 뺐습니다. 골라서 <b>전송 완료로 표시</b> 또는{" "}
+            <b>미전송으로 표시</b>를 눌러 정리해 주세요.
+          </div>
+          <Btn
+            variant="outline"
+            size="xs"
+            disabled={sending || marking}
+            onClick={() => setPicked(new Set(unknownList.map((s) => s.id)))}
+          >
+            기록 없음 {unknownList.length}명 선택
+          </Btn>
+        </div>
+      )}
 
       {sendable.length > 0 && (
         <div
@@ -2040,7 +2168,7 @@ function AdminParentNotice({ students }: { students: Student[] }) {
             disabled={marking || sending}
             onClick={() => markPicked(false)}
           >
-            미전송으로 되돌리기
+            미전송으로 표시
           </Btn>
         </div>
       )}
@@ -2108,13 +2236,15 @@ function AdminParentNotice({ students }: { students: Student[] }) {
                       <input
                         type="checkbox"
                         checked={picked.has(s.id)}
-                        disabled={!ok || !s.phone}
+                        disabled={!ok || !canText(s) || sending}
                         onChange={() => toggle(s.id)}
                         title={
                           !ok
                             ? "계정을 먼저 발급해주세요"
                             : !s.phone
                             ? "학부모 번호가 없습니다"
+                            : !canText(s)
+                            ? "학부모 번호 형식이 맞지 않습니다"
                             : "문자 보낼 학생으로 고르기"
                         }
                       />
@@ -2129,11 +2259,14 @@ function AdminParentNotice({ students }: { students: Student[] }) {
                       style={{
                         padding: "10px 14px",
                         fontFamily: "monospace",
-                        color: s.phone ? T.sub : T.bad,
+                        color: canText(s) ? T.sub : T.bad,
                         whiteSpace: "nowrap",
                       }}
                     >
                       {s.phone || "번호 없음"}
+                      {s.phone && !canText(s) && (
+                        <div style={{ fontSize: 11.5, fontFamily: FONT }}>형식 오류</div>
+                      )}
                     </td>
                     <td style={{ padding: "10px 14px", fontFamily: "monospace" }}>
                       {s.parentUsername || "—"}
@@ -2151,8 +2284,17 @@ function AdminParentNotice({ students }: { students: Student[] }) {
                         >
                           ✓ {sentDayLabel(sent)}
                         </span>
-                      ) : ok ? (
+                      ) : ok && canText(s) && unknown(s) ? (
+                        <span
+                          style={{ color: T.muted, fontWeight: 700 }}
+                          title="전송 기록을 남기기 전에 만든 계정이라 보냈는지 알 수 없습니다"
+                        >
+                          기록 없음
+                        </span>
+                      ) : ok && canText(s) ? (
                         <span style={{ color: T.warn, fontWeight: 700 }}>미전송</span>
+                      ) : ok ? (
+                        <span style={{ color: T.muted }}>번호 확인</span>
                       ) : (
                         <span style={{ color: T.muted }}>—</span>
                       )}
@@ -5321,6 +5463,8 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
   const [terms, setTerms] = useState<TermInfo[]>([]);
   const [termId, setTermId] = useState("");
   const [students, setStudents] = useState<Student[]>([]);
+  // 학부모 계정 안내의 발송 상태. 탭을 옮겨 안내 화면이 다시 그려져도 유지되도록 여기에 둔다.
+  const noticeSession = useParentNoticeSession();
   const [sessions, setSessions] = useState<ClinicSession[]>([]);
   const [testMax, setTestMax] = useState<Record<string, number>>({});
   const [testDetail, setTestDetail] = useState<Record<string, string>>({});
@@ -5341,8 +5485,12 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
   // 마지막으로 관리자가 직접 입력한 시각 (자동 새로고침이 입력을 덮어쓰지 않도록)
   const lastEditRef = useRef(0);
 
-  const reloadStudents = async () =>
+  const reloadStudents = async () => {
+    const startedAt = Date.now();
     setStudents(await api.get(`/api/admin/roster${tq}`));
+    // 불러오기 전에 남긴 전송 기록은 새 명단에 이미 들어 있다 (재발급·번호 변경으로 지워진 것 포함)
+    noticeSession.dropBefore(startedAt);
+  };
   const reloadSessions = async () =>
     setSessions(await api.get(`/api/admin/sessions${tq}`));
   const reloadTestMax = async () => {
@@ -5849,7 +5997,7 @@ export function AdminPortal({ onLogout }: { onLogout: () => void }) {
                 />
               )}
               {tab === "parentNotice" && (
-                <AdminParentNotice key={termId} students={students} />
+                <AdminParentNotice key={termId} students={students} session={noticeSession} />
               )}
               {tab === "schoolExams" && term && (
                 <AdminSchoolExams
